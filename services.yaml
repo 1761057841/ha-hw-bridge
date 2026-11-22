@@ -1,0 +1,12 @@
+start_pairing:
+  name: Start pairing
+  description: >-
+    Restart the LAN pairing listener for one OneConnect Bridge gateway.
+  fields:
+    serial:
+      name: Gateway serial
+      description: Serial number of the gateway that should start pairing.
+      required: true
+      example: "1A2B3C4D5E6F7788"
+      selector:
+        text:

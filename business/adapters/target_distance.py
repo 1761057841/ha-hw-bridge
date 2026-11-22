@@ -1,0 +1,46 @@
+"""Huawei ``targetDistance`` measurement adapter for Profile 2RJB."""
+
+from __future__ import annotations
+
+import math
+
+from ..models import ServiceRef
+
+
+class TargetDistanceServiceAdapter:
+    service_id = "targetDistance"
+    entity_domains = ("sensor",)
+    entity_counts = None
+
+    def validate_service(self, service: ServiceRef) -> None:
+        if service.service_type != "targetDistance":
+            raise ValueError("targetDistance requires st: targetDistance")
+        unknown = set(dict(service.contract)) - {"field", "scale"}
+        if unknown:
+            raise ValueError(f"targetDistance has unsupported contract keys: {', '.join(sorted(unknown))}")
+        scale = service.contract_value("scale", 1)
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(float(scale)) or float(scale) <= 0:
+            raise ValueError("targetDistance contract scale must be positive and finite")
+
+    def validate_entities(self, entity_ids: tuple[str, ...]) -> None:
+        if len(entity_ids) != 1 or not entity_ids[0].startswith("sensor."):
+            raise ValueError("targetDistance requires exactly one sensor entity")
+
+    async def read_state(self, hass, service: ServiceRef, entity_ids: tuple[str, ...]) -> dict[str, object]:
+        self.validate_service(service)
+        self.validate_entities(entity_ids)
+        state = hass.states.get(entity_ids[0])
+        if state is None or state.state in {"unknown", "unavailable"}:
+            return {}
+        try:
+            value = float(state.state) * float(service.contract_value("scale", 1))
+        except (TypeError, ValueError, OverflowError):
+            return {}
+        return {"distance": value} if math.isfinite(value) else {}
+
+    async def apply_command(self, hass, service: ServiceRef, entity_ids: tuple[str, ...], payload: dict[str, object]) -> None:
+        self.validate_service(service)
+        self.validate_entities(entity_ids)
+
+
+ADAPTER = TargetDistanceServiceAdapter()

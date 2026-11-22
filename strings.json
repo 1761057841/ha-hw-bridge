@@ -1,0 +1,180 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add OneConnect Bridge gateway",
+        "description": "Select the IPv4 network interface for Huawei LAN pairing. Enter the 8-digit PIN manually in Huawei Smart Life during pairing.",
+        "data": {
+          "interface_ip": "Pairing network IPv4 address"
+        }
+      },
+      "init": {
+        "title": "Select pairing network interface",
+        "data": {
+          "interface_ip": "Pairing network IPv4 address"
+        }
+      },
+      "child_product": {
+        "title": "Add child device",
+        "description": "Choose a preset product model to register as a child device on the Huawei cloud, or enter a custom product identity.",
+        "data": {
+          "product_template": "Product model"
+        }
+      },
+      "child_custom": {
+        "title": "Custom product identity",
+        "description": "Enter the Huawei product identity from the device Profile (prodId, deviceTypeId, manufacturerId, deviceModel, protocolType).",
+        "data": {
+          "prod_id": "prodId",
+          "sub_prod_id": "subProdId (optional)",
+          "device_type": "deviceTypeId",
+          "manufacturer": "manufacturerId",
+          "model": "deviceModel",
+          "friendly_name": "Display name",
+          "protocol_type": "protocolType",
+          "setup_type": "setupType",
+          "known_fields_only": "Known fields only (hide subProdId and setupType)"
+        }
+      },
+      "child_services": {
+        "title": "Select services",
+        "description": "Choose the services this child device ({prod_id}) should expose to Huawei Smart Life.",
+        "data": {
+          "services": "Services"
+        }
+      },
+      "child_custom_services": {
+        "title": "Service identifiers",
+        "description": "Enter one Huawei serviceId (sid) per line, for example: switch, brightness. Each sid must have a registered service adapter.",
+        "data": {
+          "service_ids": "Service identifiers (one per line)"
+        }
+      },
+      "child_entities": {
+        "title": "Bind Home Assistant entities",
+        "description": "Select the Home Assistant entities that provide the state for each service.",
+        "data": {
+          "entity_switch": "switch",
+          "entity_brightness": "brightness",
+          "entity_cct": "cct",
+          "entity_colour": "colour",
+          "entity_temperature": "temperature",
+          "entity_humidity": "humidity",
+          "entity_airDetector": "airDetector",
+          "entity_motor": "motor",
+          "entity_openLevel": "openLevel",
+          "entity_opener": "opener",
+          "entity_hcho": "hcho",
+          "entity_alarm": "alarm",
+          "entity_alarmBell": "alarmBell",
+          "entity_battery": "battery",
+          "entity_luminance": "luminance",
+          "entity_pir": "pir",
+          "entity_targetDistance": "targetDistance",
+          "entity_gasSensor": "gasSensor",
+          "entity_mode": "mode",
+          "entity_fan": "fan",
+          "entity_cleanerRobot": "cleanerRobot",
+          "entity_status": "status",
+          "entity_action": "action",
+          "entity_leftAction": "leftAction"
+        }
+      },
+      "child_details": {
+        "title": "Name the child device",
+        "description": "Choose the display name shown in Huawei Smart Life ({prod_id}).",
+        "data": {
+          "friendly_name": "Display name",
+          "room": "Room (optional)"
+        }
+      },
+      "import_children": {
+        "title": "Import child devices from mapping.yaml",
+        "description": "Each enabled child device in this gateway's mapping.yaml will be added as a separate device entry. Existing entries with the same key are kept.",
+        "data": {}
+      }
+    },
+    "abort": {
+      "no_ipv4_interface": "No usable IPv4 network interface was found.",
+      "already_configured": "This gateway is already configured.",
+      "mapping_imported": "Child devices were imported from mapping.yaml.",
+      "mapping_import_failed": "mapping.yaml could not be read; no child devices were imported.",
+      "child_limit": "The maximum of {limit} child devices per gateway has been reached."
+    },
+    "error": {
+      "mac_not_found": "Unable to read the MAC address of the selected network interface.",
+      "unknown_template": "Unknown product template.",
+      "invalid_custom_product": "The custom product identity is incomplete.",
+      "no_services_selected": "Select at least one service.",
+      "unknown_service": "One of the selected services has no registered adapter.",
+      "entity_required": "Select the bound Home Assistant entity.",
+      "invalid_entities": "The selected entities do not satisfy this service's requirements.",
+      "required": "This field is required.",
+      "plan_invalid": "The stored child-device configuration is invalid: {error}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Select pairing network interface",
+        "data": {
+          "interface_ip": "Pairing network IPv4 address"
+        }
+      }
+    }
+  },
+  "device": {
+    "gateway": {
+      "name": "Smart Home gateway"
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "online": {
+        "name": "Online"
+      }
+    },
+    "button": {
+      "reload_children": {
+        "name": "Reload child-device configuration"
+      }
+    },
+    "sensor": {
+      "child_count": {
+        "name": "Child devices",
+        "unit_of_measurement": "items"
+      },
+      "serial": {
+        "name": "Gateway serial number"
+      }
+    }
+  },
+  "exceptions": {
+    "gateway_limit": {
+      "message": "The maximum of {limit} independent gateway instances has been reached."
+    },
+    "mapping_file_unavailable": {
+      "message": "The gateway mapping file is not available."
+    },
+    "mapping_reload_failed": {
+      "message": "The child-device mapping could not be reloaded: {error}"
+    },
+    "unknown_gateway": {
+      "message": "Unknown OneConnect Bridge gateway: {serial}"
+    }
+  },
+  "common": {
+    "gateway_limit_title": "OneConnect Bridge gateway limit reached",
+    "gateway_limit_message": "The maximum of {limit} independent gateway instances has been reached. Remove an existing gateway before adding another.\n\n{error}",
+    "mapping_not_loaded_title": "OneConnect Bridge child-device configuration",
+    "mapping_not_loaded_message": "Child-device configuration for gateway `{serial}` was not loaded:\n\n{error}\n\nFix mapping.yaml and select \"Reload child-device configuration\".",
+    "mapping_not_reloaded_title": "OneConnect Bridge child-device configuration",
+    "mapping_not_reloaded_message": "Child-device configuration for gateway `{serial}` was not reloaded:\n\n{error}\n\nThe previous configuration remains active. Fix mapping.yaml and try again.",
+    "plan_invalid_title": "OneConnect Bridge child-device configuration",
+    "plan_invalid_message": "The saved child-device configuration for gateway `{serial}` is invalid:\n\n{error}\n\nOpen the child-device settings and select exactly one entity for the switch service.",
+    "pairing_title": "OneConnect Bridge pairing",
+    "pairing_message": "Gateway `{serial}` is waiting for pairing.\n\nPIN: `{pin}`\n\nOpen Huawei Smart Life, select Add gateway, and enter the PIN manually.",
+    "yaml_ignored_title": "OneConnect Bridge child-device sources",
+    "yaml_ignored_message": "Gateway `{serial}` uses devices added in Home Assistant. The children in mapping.yaml are ignored; import them if you want them managed in the UI."
+  }
+}
