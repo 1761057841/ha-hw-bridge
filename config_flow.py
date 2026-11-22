@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import secrets
 import socket
 from typing import Any
@@ -74,6 +75,18 @@ def _service_multi_select(template: dict[str, Any]):
         if isinstance(item, dict) and item.get("sid")
     }
     return cv.multi_select(choices)
+
+
+def _entity_field(service_id: str) -> str:
+    """Return the form field name for one service, in HA's key format.
+
+    Subentry form fields become translation keys, and Hassfest only allows
+    ``[a-z0-9-_]``. Service ids such as ``airDetector`` are camelCase, so the
+    field name is normalized; the stored binding keeps the real sid.
+    """
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", service_id)
+    normalized = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", normalized)
+    return f"entity_{normalized.lower()}"
 
 
 def _entity_selector_for(service_id: str):
@@ -353,9 +366,9 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         if user_input is not None:
             bindings: list[dict[str, Any]] = []
             for service_id in selected:
-                entities = user_input.get(f"entity_{service_id}")
+                entities = user_input.get(_entity_field(service_id))
                 if not entities:
-                    errors[f"entity_{service_id}"] = "entity_required"
+                    errors[_entity_field(service_id)] = "entity_required"
                     continue
                 # EntitySelector returns a string for single selection and a
                 # list only when multiple=True; normalize both shapes.
@@ -363,7 +376,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 try:
                     _adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
-                    errors[f"entity_{service_id}"] = "invalid_entities"
+                    errors[_entity_field(service_id)] = "invalid_entities"
                     continue
                 bindings.append({"sid": service_id, "entities": entity_list})
             if not errors:
@@ -373,7 +386,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         try:
             for service_id in selected:
                 schema_dict[
-                    vol.Required(f"entity_{service_id}")
+                    vol.Required(_entity_field(service_id))
                 ] = _entity_selector_for(service_id)
         except ValueError:
             return await self.async_step_child_product()
@@ -462,15 +475,15 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         if user_input is not None:
             new_bindings: list[dict[str, Any]] = []
             for service_id in services:
-                entities = user_input.get(f"entity_{service_id}")
+                entities = user_input.get(_entity_field(service_id))
                 if not entities:
-                    errors[f"entity_{service_id}"] = "entity_required"
+                    errors[_entity_field(service_id)] = "entity_required"
                     continue
                 entity_list = [entities] if isinstance(entities, str) else list(entities)
                 try:
                     _adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
-                    errors[f"entity_{service_id}"] = "invalid_entities"
+                    errors[_entity_field(service_id)] = "invalid_entities"
                     continue
                 new_bindings.append({"sid": service_id, "entities": entity_list})
             name = str(user_input.get("friendly_name", "")).strip() or subentry.title
@@ -497,7 +510,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             for service_id in services:
                 schema_dict[
                     vol.Required(
-                        f"entity_{service_id}",
+                        _entity_field(service_id),
                         default=bindings.get(service_id, []),
                     )
                 ] = _entity_selector_for(service_id)
