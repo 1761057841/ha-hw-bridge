@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-DOMAIN = "oneconnect_bridge"
+DOMAIN = "ha_hw_bridge"
+
+# Domains this integration used before the rename. Their stored gateway
+# material is adopted once so paired gateways keep working.
+LEGACY_DOMAINS = ("oneconnect_bridge",)
 
 CONF_INTERFACE_IP = "interface_ip"
 CONF_MAC = "mac"
 CONF_SERIAL = "serial"
+CONF_ENABLE_TRACE = "enable_trace"
+# Shown only while a gateway paired under the pre-rename domain can be adopted.
+CONF_REUSE_SERIAL = "reuse_serial"
 
 VIRTUAL_HARDWARE_VERSION = "1.0.0"
 

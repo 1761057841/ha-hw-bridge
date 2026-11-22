@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Any
-
 import secrets
 import socket
+from typing import Any
 
 import psutil
 import voluptuous as vol
@@ -12,9 +11,16 @@ from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.selector import EntitySelector, EntitySelectorConfig
 
-from .business import MappingConfigError, load_enabled_mapping
 from .business.product_templates import PRESET_PRODUCTS, resolve_template
-from .const import CONF_INTERFACE_IP, CONF_MAC, CONF_SERIAL, DOMAIN, MAX_CHILD_DEVICES_PER_GATEWAY
+from .const import (
+    CONF_ENABLE_TRACE,
+    CONF_INTERFACE_IP,
+    CONF_MAC,
+    CONF_REUSE_SERIAL,
+    CONF_SERIAL,
+    DOMAIN,
+    MAX_CHILD_DEVICES_PER_GATEWAY,
+)
 from .storage import GatewayStore
 
 SUBENTRY_TYPE_CHILD = "child"
@@ -70,15 +76,6 @@ def _service_multi_select(template: dict[str, Any]):
     return cv.multi_select(choices)
 
 
-def _load_plan_safely(path):
-    from pathlib import Path
-
-    try:
-        return load_enabled_mapping(Path(path))
-    except MappingConfigError:
-        return None
-
-
 def _entity_selector_for(service_id: str):
     adapter = _adapter_for(service_id)
     counts = getattr(adapter, "entity_counts", None)
@@ -92,19 +89,54 @@ def _entity_selector_for(service_id: str):
     return EntitySelector(selector_config)
 
 
-class OneConnectBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+def _legacy_gateway_serials(config_dir: str) -> list[str]:
+    """List serials paired under the pre-rename domain that can be reused."""
+
+    from pathlib import Path
+
+    from .const import LEGACY_DOMAINS
+
+    result: list[str] = []
+    for legacy in LEGACY_DOMAINS:
+        root = Path(config_dir) / ".storage" / legacy / "gateways"
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
+            if (child / "cloud" / "material.json").is_file():
+                result.append(child.name)
+    return result
+
+
+def _child_subentries(entry) -> list:
+    subentries = getattr(entry, "subentries", None) or {}
+    values = list(subentries.values()) if hasattr(subentries, "values") else list(subentries)
+    return [
+        item
+        for item in values
+        if getattr(item, "subentry_type", SUBENTRY_TYPE_CHILD) == SUBENTRY_TYPE_CHILD
+    ]
+
+
+class HAHWBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle the gateway entry flow."""
 
-    VERSION = 2
+    VERSION = 3
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input=None):
         options = await self.hass.async_add_executor_job(_interface_options)
         if not options:
             return self.async_abort(reason="no_ipv4_interface")
 
+        legacy_serials = await self.hass.async_add_executor_job(
+            _legacy_gateway_serials, self.hass.config.path()
+        )
         errors: dict[str, str] = {}
         if user_input is not None:
             interface_ip = user_input[CONF_INTERFACE_IP]
+            reuse_serial = str(user_input.get(CONF_REUSE_SERIAL) or "").strip()
             try:
                 mac = await self.hass.async_add_executor_job(
                     _interface_mac, interface_ip
@@ -112,23 +144,33 @@ class OneConnectBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             except ValueError:
                 errors[CONF_INTERFACE_IP] = "mac_not_found"
             else:
-                serial = secrets.token_hex(8).upper()
-                await self.async_set_unique_id(serial)
-                self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=serial,
-                    data={
-                        CONF_INTERFACE_IP: interface_ip,
-                        CONF_MAC: mac,
-                        CONF_SERIAL: serial,
-                    },
-                )
+                serial = reuse_serial or secrets.token_hex(8).upper()
+                if reuse_serial and reuse_serial not in legacy_serials:
+                    errors[CONF_REUSE_SERIAL] = "unknown_legacy_serial"
+                    serial = ""
+                if serial:
+                    await self.async_set_unique_id(serial)
+                    self._abort_if_unique_id_configured()
+                    return self.async_create_entry(
+                        title=serial,
+                        data={
+                            CONF_INTERFACE_IP: interface_ip,
+                            CONF_MAC: mac,
+                            CONF_SERIAL: serial,
+                            CONF_REUSE_SERIAL: bool(reuse_serial),
+                        },
+                    )
 
+        schema_dict: dict[Any, Any] = {
+            vol.Required(CONF_INTERFACE_IP, default=current_ip): vol.In(options)
+        }
+        if legacy_serials:
+            schema_dict[
+                vol.Optional(CONF_REUSE_SERIAL, default="")
+            ] = vol.In([""] + legacy_serials)
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {vol.Required(CONF_INTERFACE_IP): vol.In(options)}
-            ),
+            data_schema=vol.Schema(schema_dict),
             errors=errors,
         )
 
@@ -144,15 +186,23 @@ class OneConnectBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def async_get_options_flow(config_entry):
         # HA's current OptionsFlow is initialized without positional args;
         # the linked entry is available later through self.config_entry.
-        return OneConnectBridgeOptionsFlow()
+        return HAHWBridgeOptionsFlow()
 
 
 class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
-    """Add, reconfigure, or import one child-device subentry."""
+    """Add or reconfigure one child-device subentry."""
 
     async def async_step_user(self, user_input=None):
         """Entry point for the device page's "Add device" action."""
 
+        entry = self._get_entry()
+        if len(_child_subentries(entry)) >= MAX_CHILD_DEVICES_PER_GATEWAY:
+            return self.async_abort(
+                reason="child_limit",
+                description_placeholders={
+                    "limit": str(MAX_CHILD_DEVICES_PER_GATEWAY)
+                },
+            )
         return await self.async_step_child_product(user_input)
 
     async def async_step_child_product(self, user_input=None):
@@ -273,6 +323,8 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         errors: dict[str, str] = {}
         if user_input is not None:
             services = user_input.get("services") or []
+            if isinstance(services, str):
+                services = [services]
             if not services:
                 errors["services"] = "no_services_selected"
             else:
@@ -345,7 +397,11 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             if not name:
                 name = str(template.get("friendly_name") or template["prod_id"])
             selected = self.context.get("selected_services") or []
+            # The child key is generated once and never derived from the
+            # display name, so renames keep the cloud child identity.
+            key = secrets.token_hex(8).upper()
             data = {
+                "key": key,
                 "prod_id": str(template["prod_id"]),
                 "sub_prod_id": str(template.get("sub_prod_id", "")),
                 "device_type": str(template["device_type"]),
@@ -366,7 +422,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             # The entry's update listener re-applies the child plan once
             # async_add_subentry fires; no manual reload needed here.
             return self.async_create_entry(
-                title=name, data=data, unique_id=f"child:{name}"
+                title=name, data=data, unique_id=f"child:{key}"
             )
         return self.async_show_form(
             step_id="child_details",
@@ -387,14 +443,14 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
     # ------------------------------------------------------------------
 
     async def async_step_reconfigure(self, user_input=None):
-        """Edit the entities of an existing child-device subentry."""
+        """Edit the entities and labels of an existing child-device subentry."""
 
         subentry = self._get_reconfigure_subentry()
         data = dict(subentry.data)
         bindings = {
             item["sid"]: list(item["entities"])
             for item in data.get("bindings", [])
-            if isinstance(item, dict)
+            if isinstance(item, dict) and item.get("sid")
         }
         services = [
             item["sid"]
@@ -413,16 +469,19 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 entity_list = [entities] if isinstance(entities, str) else list(entities)
                 try:
                     _adapter_for(service_id).validate_entities(tuple(entity_list))
-                except ValueError:
+                except ValueError as error:
                     errors[f"entity_{service_id}"] = "invalid_entities"
                     continue
                 new_bindings.append({"sid": service_id, "entities": entity_list})
             name = str(user_input.get("friendly_name", "")).strip() or subentry.title
-            room = str(user_input.get("room", "")).strip() or data.get("room")
+            room_input = str(user_input.get("room", "")).strip()
+            room = room_input or None
             if not errors:
                 data["bindings"] = new_bindings
                 data["friendly_name"] = name
                 data["room"] = room
+                # Keep the stored child key stable; only repair legacy data.
+                data.setdefault("key", subentry.subentry_id)
                 entry = self._get_entry()
                 # update_and_abort (not update_reload_and_abort): the entry
                 # has an update listener that re-applies the child plan, and
@@ -451,98 +510,53 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         )
 
 
-class OneConnectBridgeOptionsFlow(config_entries.OptionsFlow):
-    """Configure the gateway entry: pairing interface and YAML import."""
+class HAHWBridgeOptionsFlow(config_entries.OptionsFlow):
+    """Configure the gateway entry: pairing interface and cloud trace."""
 
     async def async_step_init(self, user_input=None):
         options = await self.hass.async_add_executor_job(_interface_options)
         entry = self.config_entry
-        if user_input is not None:
-            if user_input.get("action") == "import_children":
-                return await self.async_step_import_children()
-            interface_ip = user_input[CONF_INTERFACE_IP]
-            mac = await self.hass.async_add_executor_job(_interface_mac, interface_ip)
-            return self.async_create_entry(
-                title="",
-                data={CONF_INTERFACE_IP: interface_ip, CONF_MAC: mac},
-            )
-        actions = {"change_interface": "Change pairing network interface"}
-        store = GatewayStore(self.hass.config.path(), str(entry.data.get(CONF_SERIAL)))
-        plan = await self.hass.async_add_executor_job(
-            _load_plan_safely, store.path("mapping.yaml")
+        current_ip = entry.options.get(
+            CONF_INTERFACE_IP, entry.data.get(CONF_INTERFACE_IP)
         )
-        if plan is not None and plan.children:
-            actions["import_children"] = "Import child devices from mapping.yaml"
+        current_trace = bool(
+            entry.options.get(
+                CONF_ENABLE_TRACE, entry.data.get(CONF_ENABLE_TRACE, False)
+            )
+        )
+        current_mac = entry.options.get(CONF_MAC, entry.data.get(CONF_MAC))
+        if not options:
+            return self.async_abort(reason="no_ipv4_interface")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            interface_ip = user_input[CONF_INTERFACE_IP]
+            try:
+                mac = await self.hass.async_add_executor_job(
+                    _interface_mac, interface_ip
+                )
+            except ValueError:
+                errors[CONF_INTERFACE_IP] = "mac_not_found"
+            else:
+                # A plain OptionsFlow does not reload the entry; changing the
+                # pairing interface only takes effect after a reload.
+                if interface_ip != current_ip or mac != current_mac:
+                    self.hass.config_entries.async_schedule_reload(entry.entry_id)
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        CONF_INTERFACE_IP: interface_ip,
+                        CONF_MAC: mac,
+                        CONF_ENABLE_TRACE: bool(user_input.get(CONF_ENABLE_TRACE)),
+                    },
+                )
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Required("action"): vol.In(actions),
-                vol.Optional(CONF_INTERFACE_IP): vol.In(options),
+                vol.Required(CONF_INTERFACE_IP, default=current_ip): vol.In(options),
+                vol.Optional(
+                    CONF_ENABLE_TRACE, default=current_trace
+                ): bool,
             }),
+            errors=errors,
         )
-
-    async def async_step_import_children(self, user_input=None):
-        """Create one child subentry per mapping.yaml child, keeping keys."""
-
-        entry = self.config_entry
-        serial = str(entry.data.get(CONF_SERIAL))
-        if user_input is not None:
-            store = GatewayStore(self.hass.config.path(), serial)
-            plan = await self.hass.async_add_executor_job(
-                _load_plan_safely, store.path("mapping.yaml")
-            )
-            if plan is None:
-                return self.async_abort(reason="mapping_import_failed")
-            existing_keys = {
-                str(item.data.get("key"))
-                for item in entry.subentries.values()
-            }
-            created = 0
-            for child in plan.children:
-                if child.key in existing_keys:
-                    continue
-                data = {
-                    "key": child.key,
-                    "prod_id": child.product.prod_id,
-                    "sub_prod_id": child.product.sub_prod_id,
-                    "device_type": child.product.device_type,
-                    "manufacturer": child.product.manufacturer,
-                    "model": child.product.model,
-                    "protocol_type": child.product.protocol_type,
-                    "setup_type": child.product.setup_type,
-                    "friendly_name": child.product.friendly_name,
-                    "known_fields_only": child.product.known_fields_only,
-                    "room": child.room,
-                    "services": [
-                        {
-                            "st": service.service_type,
-                            "sid": service.service_id,
-                            "contract": dict(service.contract),
-                        }
-                        for service in child.services
-                    ],
-                    "bindings": [
-                        {
-                            "sid": binding.service_id,
-                            "entities": list(binding.entity_ids),
-                        }
-                        for binding in child.bindings
-                    ],
-                }
-                await self.hass.config_entries.async_add_subentry(
-                    entry,
-                    config_entries.ConfigSubentry(
-                        title=child.product.friendly_name or child.key,
-                        data=data,
-                        subentry_type=SUBENTRY_TYPE_CHILD,
-                        unique_id=f"mapping:{serial}:{child.key}",
-                    ),
-                )
-                created += 1
-            # Each add fired the entry's update listener, which re-applied
-            # the plan; a final manual reload would tear down the session.
-            return self.async_abort(
-                reason="mapping_imported",
-                description_placeholders={"count": str(created)},
-            )
-        return self.async_show_form(step_id="import_children")

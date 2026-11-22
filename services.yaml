@@ -1,7 +1,7 @@
 start_pairing:
   name: Start pairing
   description: >-
-    Restart the LAN pairing listener for one OneConnect Bridge gateway.
+    Restart the LAN pairing listener for one HA HW Bridge gateway.
   fields:
     serial:
       name: Gateway serial

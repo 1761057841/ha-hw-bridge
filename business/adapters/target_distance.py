@@ -18,6 +18,9 @@ class TargetDistanceServiceAdapter:
         unknown = set(dict(service.contract)) - {"field", "scale"}
         if unknown:
             raise ValueError(f"targetDistance has unsupported contract keys: {', '.join(sorted(unknown))}")
+        field = service.contract_value("field", "distance")
+        if not isinstance(field, str) or not field:
+            raise ValueError("targetDistance contract field must be non-empty text")
         scale = service.contract_value("scale", 1)
         if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(float(scale)) or float(scale) <= 0:
             raise ValueError("targetDistance contract scale must be positive and finite")
@@ -36,7 +39,8 @@ class TargetDistanceServiceAdapter:
             value = float(state.state) * float(service.contract_value("scale", 1))
         except (TypeError, ValueError, OverflowError):
             return {}
-        return {"distance": value} if math.isfinite(value) else {}
+        field = service.contract_value("field", "distance")
+        return {field: value} if math.isfinite(value) else {}
 
     async def apply_command(self, hass, service: ServiceRef, entity_ids: tuple[str, ...], payload: dict[str, object]) -> None:
         self.validate_service(service)

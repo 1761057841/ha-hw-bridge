@@ -1,4 +1,3 @@
-from .mapping_config import MappingConfigError, load_enabled_mapping
 from .models import (
     ChildPlan,
     GatewayPlan,
@@ -6,13 +5,14 @@ from .models import (
     ServiceBinding,
     ServiceRef,
 )
+from .plan_builder import PlanBuilderError, plan_from_subentries
 
 __all__ = [
     "ChildPlan",
     "GatewayPlan",
-    "MappingConfigError",
+    "PlanBuilderError",
     "ProductSpec",
     "ServiceBinding",
     "ServiceRef",
-    "load_enabled_mapping",
+    "plan_from_subentries",
 ]

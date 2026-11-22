@@ -248,7 +248,7 @@ PRESET_PRODUCTS: dict[str, dict[str, Any]] = {
     },
 }
 
-# Aliases keep the mapping.yaml example keys working through the UI too.
+# Aliases keep the historical example keys working through the UI too.
 TEMPLATE_ALIASES = {
     "color_bulb_9mu7": "bulb_9mu7",
     "air_conditioner_9mxo": "air_conditioner_9mxo",

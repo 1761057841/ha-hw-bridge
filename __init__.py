@@ -1,27 +1,26 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from homeassistant.components import persistent_notification
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.translation import async_get_translations
+from homeassistant.util import ulid as ulid_util
 import voluptuous as vol
 
-from .business import MappingConfigError, load_enabled_mapping
 from .business.plan_builder import PlanBuilderError, plan_from_subentries
-from .const import DOMAIN, MAX_GATEWAY_INSTANCES
+from .const import CONF_REUSE_SERIAL, DOMAIN, MAX_GATEWAY_INSTANCES
 from .business.child_cleanup import ChildCleanupClient
 from .gateway import GatewayConfig, GatewayLimitError, GatewayManager, GatewayRuntime
 from .ha_adapter import HAEntityBridge
+from .legacy_import import legacy_child_payloads
 from .storage import GatewayStore
 
 
 PLATFORMS: list[str] = ["binary_sensor", "sensor", "button"]
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_MAPPING_PATH = Path(__file__).with_name("default_mapping.yaml")
 
 
 def _read_gateway_removal_material(config_dir: str, serial: str):
@@ -43,19 +42,11 @@ def _remove_gateway_storage(config_dir: str, serial: str) -> None:
     GatewayStore(config_dir, serial).remove_gateway()
 
 
-def _prepare_gateway_mapping(config_dir: str, serial: str):
-    """Create the per-gateway sample and compile it only when enabled."""
-
-    store = GatewayStore(config_dir, serial)
-    path = store.ensure_mapping_file(DEFAULT_MAPPING_PATH)
-    return path, load_enabled_mapping(path)
-
-
 def _build_plan_from_subentries(entry: ConfigEntry):
     """Compile the child plan from UI subentries; None when absent/invalid.
 
     Returns (plan, error) where plan is None with error set only when a
-    stored subentry is invalid; (None, None) means "no subentries yet".
+    stored subentry is invalid; (None, None) means "no child devices yet".
     """
 
     subentries = getattr(entry, "subentries", None) or {}
@@ -86,7 +77,6 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "manager": GatewayManager(),
             "runtimes": {},
             "forwarded_entries": set(),
-            "gateway_mappings": {},
             "reload_callbacks": {},
         },
     )
@@ -111,6 +101,52 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+async def _restore_legacy_children(
+    hass: HomeAssistant, entry: ConfigEntry, serial: str
+) -> None:
+    """Recreate child subentries stored under the pre-rename domain, once."""
+
+    if _child_subentries(entry):
+        return
+    payloads = await hass.async_add_executor_job(
+        legacy_child_payloads, hass.config.path(), serial
+    )
+    if not payloads:
+        return
+    for payload in payloads:
+        try:
+            subentry = ConfigSubentry(
+                title=payload["title"],
+                data=payload["data"],
+                subentry_type="child",
+                unique_id=payload["unique_id"],
+                subentry_id=payload["subentry_id"] or ulid_util.ulid_now(),
+            )
+            # async_add_subentry is a sync @callback, not a coroutine.
+            hass.config_entries.async_add_subentry(entry, subentry)
+        except Exception as error:  # noqa: BLE001 - a single child must not block setup
+            _LOGGER.warning(
+                "Unable to restore legacy child %s: %s", payload["title"], error
+            )
+    _LOGGER.info(
+        "Restored %d child devices from the pre-rename entry for gateway %s",
+        len(payloads),
+        serial,
+    )
+
+
+def _child_subentries(entry: ConfigEntry) -> list:
+    """Return the child-device subentries stored on one config entry."""
+
+    subentries = getattr(entry, "subentries", None) or {}
+    values = subentries.values() if hasattr(subentries, "values") else subentries
+    return [
+        item
+        for item in values
+        if getattr(item, "subentry_type", "child") == "child"
+    ]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     data = hass.data.setdefault(
         DOMAIN,
@@ -118,7 +154,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "manager": GatewayManager(),
             "runtimes": {},
             "forwarded_entries": set(),
-            "gateway_mappings": {},
             "reload_callbacks": {},
         },
     )
@@ -140,7 +175,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # A missing optional translation must not abort integration setup.
         if message_template is None or title_template is None:
             _LOGGER.error("Missing notification translation for %s", key)
-            title_template = title_template or "OneConnect Bridge"
+            title_template = title_template or "HA HW Bridge"
             message_template = message_template or "Configuration error: {error}"
         persistent_notification.async_create(
             hass,
@@ -154,6 +189,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         interface_ip=entry.options.get("interface_ip", entry.data["interface_ip"]),
         mac=entry.options.get("mac", entry.data["mac"]),
         serial=entry.data["serial"],
+        enable_trace=bool(
+            entry.options.get(
+                "enable_trace",
+                entry.data.get("enable_trace", False),
+            )
+        ),
     )
     try:
         runtime = data["manager"].create(config)
@@ -171,82 +212,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         ) from error
     persistent_notification.async_dismiss(hass, f"{DOMAIN}_gateway_limit")
     data["runtimes"][entry.entry_id] = runtime
-    mapping_notification_id = f"{DOMAIN}_{runtime.serial}_mapping_error"
 
-    subentry_plan, subentry_error = _build_plan_from_subentries(entry)
-    mapping_path: str | None = None
-    gateway_plan = None
-    if subentry_plan is not None or subentry_error is not None:
-        # UI-managed mode: child devices come from subentries only.
-        persistent_notification.async_dismiss(hass, mapping_notification_id)
-        if subentry_error is not None:
-            _LOGGER.error(
-                "Invalid stored child devices for %s: %s",
-                runtime.serial,
-                subentry_error,
-            )
-            create_notification(
-                "plan_invalid",
-                notification_id=f"{DOMAIN}_{runtime.serial}_plan_error",
-                serial=runtime.serial,
-                error=str(subentry_error),
-            )
-        else:
-            persistent_notification.async_dismiss(
-                hass, f"{DOMAIN}_{runtime.serial}_plan_error"
-            )
-        # Probe whether mapping.yaml still declares children, and hint.
-        try:
-            _, yaml_plan = await hass.async_add_executor_job(
-                _prepare_gateway_mapping,
-                hass.config.path(),
-                runtime.serial,
-            )
-        except MappingConfigError:
-            yaml_plan = None
-        if yaml_plan is not None and yaml_plan.children:
-            create_notification(
-                "yaml_ignored",
-                notification_id=f"{DOMAIN}_{runtime.serial}_yaml_ignored",
-                serial=runtime.serial,
-            )
-        else:
-            persistent_notification.async_dismiss(
-                hass, f"{DOMAIN}_{runtime.serial}_yaml_ignored"
-            )
-        gateway_plan = subentry_plan
+    # Adopting a pre-rename serial leaves its child devices on the old entry.
+    # Recreate them before the first plan is compiled so nothing re-registers
+    # as a brand-new cloud child.
+    if entry.data.get(CONF_REUSE_SERIAL):
+        await _restore_legacy_children(hass, entry, runtime.serial)
+        entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+
+    # Child devices come from UI subentries only; there is no YAML source.
+    gateway_plan, subentry_error = _build_plan_from_subentries(entry)
+    plan_notification_id = f"{DOMAIN}_{runtime.serial}_plan_error"
+    if subentry_error is not None:
+        _LOGGER.error(
+            "Invalid stored child devices for %s: %s",
+            runtime.serial,
+            subentry_error,
+        )
+        create_notification(
+            "plan_invalid",
+            notification_id=plan_notification_id,
+            serial=runtime.serial,
+            error=str(subentry_error),
+        )
     else:
-        # Legacy mode: no subentries; fall back to mapping.yaml.
-        try:
-            mapping_path, gateway_plan = await hass.async_add_executor_job(
-                _prepare_gateway_mapping,
-                hass.config.path(),
-                runtime.serial,
-            )
-        except MappingConfigError as error:
-            _LOGGER.error("Invalid gateway mapping for %s: %s", runtime.serial, error)
-            mapping_path = GatewayStore(hass.config.path(), runtime.serial).path(
-                "mapping.yaml"
-            )
-            gateway_plan = None
-            create_notification(
-                "mapping_not_loaded",
-                notification_id=mapping_notification_id,
-                serial=runtime.serial,
-                error=str(error),
-            )
-        else:
-            persistent_notification.async_dismiss(hass, mapping_notification_id)
-        if gateway_plan is not None and gateway_plan.children:
-            _LOGGER.info(
-                "Gateway %s uses mapping.yaml (%d children); add devices in the UI "
-                "to migrate",
-                runtime.serial,
-                len(gateway_plan.children),
-            )
+        persistent_notification.async_dismiss(hass, plan_notification_id)
+
     runtime.set_gateway_plan(gateway_plan)
     entity_bridge = HAEntityBridge(hass)
     runtime.set_entity_bridge(entity_bridge)
+
     def install_state_listeners(plan) -> None:
         old_state_remover = data.setdefault("state_removers", {}).pop(entry.entry_id, None)
         if old_state_remover is not None:
@@ -267,12 +262,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
 
     install_state_listeners(gateway_plan)
-    data.setdefault("gateway_mappings", {})[entry.entry_id] = {
-        "path": mapping_path,
-        "plan": gateway_plan,
-    }
     if gateway_plan is None:
-        _LOGGER.debug("Gateway %s child mapping is disabled", runtime.serial)
+        _LOGGER.debug("Gateway %s has no child devices configured yet", runtime.serial)
     else:
         _LOGGER.info(
             "Loaded %d child mappings for gateway %s",
@@ -281,52 +272,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     async def reload_children() -> None:
-        subentry_plan, subentry_error = _build_plan_from_subentries(entry)
-        if subentry_plan is not None or subentry_error is not None:
-            # UI mode: rebuild from subentries without touching files.
-            if subentry_error is not None:
-                _LOGGER.error(
-                    "Gateway %s stored child devices are invalid: %s",
-                    runtime.serial,
-                    subentry_error,
-                )
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="mapping_reload_failed",
-                    translation_placeholders={"error": str(subentry_error)},
-                )
-            new_plan = subentry_plan
-            persistent_notification.async_dismiss(
-                hass, f"{DOMAIN}_{runtime.serial}_plan_error"
+        new_plan, subentry_error = _build_plan_from_subentries(entry)
+        if subentry_error is not None:
+            _LOGGER.error(
+                "Gateway %s stored child devices are invalid: %s",
+                runtime.serial,
+                subentry_error,
             )
-        else:
-            current_path = data["gateway_mappings"][entry.entry_id]["path"]
-            if current_path is None:
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="mapping_file_unavailable",
-                )
-            try:
-                new_plan = await hass.async_add_executor_job(
-                    load_enabled_mapping,
-                    current_path,
-                )
-            except MappingConfigError as error:
-                _LOGGER.error(
-                    "Gateway %s child mapping is invalid: %s", runtime.serial, error
-                )
-                create_notification(
-                    "mapping_not_reloaded",
-                    notification_id=mapping_notification_id,
-                    serial=runtime.serial,
-                    error=str(error),
-                )
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="mapping_reload_failed",
-                    translation_placeholders={"error": str(error)},
-                ) from error
-            persistent_notification.async_dismiss(hass, mapping_notification_id)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="mapping_reload_failed",
+                translation_placeholders={"error": str(subentry_error)},
+            )
+        persistent_notification.async_dismiss(hass, plan_notification_id)
         try:
             await hass.async_add_executor_job(runtime.reload_plan, new_plan)
         except Exception as error:  # noqa: BLE001 - button reports failure in logs
@@ -336,7 +294,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 translation_key="mapping_reload_failed",
                 translation_placeholders={"error": str(error)},
             ) from error
-        data["gateway_mappings"][entry.entry_id]["plan"] = new_plan
         install_state_listeners(new_plan)
         _LOGGER.info("Gateway %s child mapping reload requested", runtime.serial)
 
@@ -351,29 +308,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if build_error is not None:
             create_notification(
                 "plan_invalid",
-                notification_id=f"{DOMAIN}_{runtime.serial}_plan_error",
+                notification_id=plan_notification_id,
                 serial=runtime.serial,
                 error=str(build_error),
             )
             return
-        if new_plan is None:
-            # Every subentry was removed; fall back to nothing rather than
-            # silently re-enabling legacy YAML children.
-            persistent_notification.async_dismiss(
-                hass, f"{DOMAIN}_{runtime.serial}_plan_error"
-            )
-            try:
-                await hass.async_add_executor_job(runtime.reload_plan, None)
-            except Exception as error:  # noqa: BLE001 - listener must not raise
-                _LOGGER.warning(
-                    "Gateway %s child plan reset failed: %s", runtime.serial, error
-                )
-            data["gateway_mappings"][entry.entry_id]["plan"] = None
-            install_state_listeners(None)
-            return
-        persistent_notification.async_dismiss(
-            hass, f"{DOMAIN}_{runtime.serial}_plan_error"
-        )
+        persistent_notification.async_dismiss(hass, plan_notification_id)
         try:
             await hass.async_add_executor_job(runtime.reload_plan, new_plan)
         except Exception as error:  # noqa: BLE001 - listener must not raise
@@ -381,13 +321,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "Gateway %s child plan update failed: %s", runtime.serial, error
             )
             create_notification(
-                "mapping_not_reloaded",
-                notification_id=f"{DOMAIN}_{runtime.serial}_mapping_error",
+                "plan_invalid",
+                notification_id=plan_notification_id,
                 serial=runtime.serial,
                 error=str(error),
             )
             return
-        data["gateway_mappings"][entry.entry_id]["plan"] = new_plan
         install_state_listeners(new_plan)
         _LOGGER.info(
             "Gateway %s child plan re-applied after subentry change",
@@ -417,7 +356,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:
             forwarded_entries.discard(entry.entry_id)
             _LOGGER.exception(
-                "Unable to create OneConnect Bridge entities for %s",
+                "Unable to create HA HW Bridge entities for %s",
                 runtime.serial,
             )
 
@@ -452,7 +391,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return False
     data = hass.data[DOMAIN]
     data.get("forwarded_entries", set()).discard(entry.entry_id)
-    data.get("gateway_mappings", {}).pop(entry.entry_id, None)
     data.get("reload_callbacks", {}).pop(entry.entry_id, None)
     listener_remover = data.get("update_listener_removers", {}).pop(entry.entry_id, None)
     if listener_remover is not None:
@@ -473,7 +411,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass, f"{DOMAIN}_{runtime.serial}_pairing"
         )
         persistent_notification.async_dismiss(
-            hass, f"{DOMAIN}_{runtime.serial}_mapping_error"
+            hass, f"{DOMAIN}_{runtime.serial}_plan_error"
         )
         data["manager"].remove(runtime)
     return True
@@ -488,7 +426,6 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     data = hass.data.get(DOMAIN)
     if data is not None:
         data.get("forwarded_entries", set()).discard(entry.entry_id)
-        data.get("gateway_mappings", {}).pop(entry.entry_id, None)
         data.get("reload_callbacks", {}).pop(entry.entry_id, None)
         listener_remover = data.get("update_listener_removers", {}).pop(
             entry.entry_id, None
@@ -512,7 +449,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
             hass, f"{DOMAIN}_{serial}_pairing"
         )
         persistent_notification.async_dismiss(
-            hass, f"{DOMAIN}_{serial}_mapping_error"
+            hass, f"{DOMAIN}_{serial}_plan_error"
         )
 
     material, ca_path, child_materials = await hass.async_add_executor_job(
@@ -571,23 +508,26 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     )
 
 
-async def _trigger_subentry_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Re-apply the child plan after any subentry change."""
-
-    reload_callback = hass.data.get(DOMAIN, {}).get("reload_callbacks", {}).get(
-        entry.entry_id
-    )
-    if reload_callback is not None:
-        await reload_callback()
-
-
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Migrate old config entries to the subentry-capable schema."""
+    """Migrate old config entries to the subentry-only schema."""
 
-    if entry.version > 2:
+    if entry.version > 3:
         # Downgrades are not supported; keep the entry as-is.
         return True
-    if entry.version < 2:
-        hass.config_entries.async_update_entry(entry, version=2)
-        _LOGGER.info("Migrated OneConnect Bridge entry %s to version 2", entry.title)
+    if entry.version < 3:
+        # Version 2 stored children without a stable ``key``. Pin each child to
+        # its subentry id so the plan builder keeps reusing the same cloud child
+        # identity. New entries already persist a key, so nothing changes there.
+        subentries = getattr(entry, "subentries", None) or {}
+        values = subentries.values() if hasattr(subentries, "values") else subentries
+        for subentry in values:
+            data = dict(subentry.data)
+            if isinstance(data.get("key"), str) and data["key"]:
+                continue
+            data["key"] = subentry.subentry_id
+            hass.config_entries.async_update_subentry(
+                entry, subentry, data=data
+            )
+        hass.config_entries.async_update_entry(entry, version=3, minor_version=1)
+        _LOGGER.info("Migrated HA HW Bridge entry %s to version 3", entry.title)
     return True

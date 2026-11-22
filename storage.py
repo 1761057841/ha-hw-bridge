@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from .const import DOMAIN
+from .const import DOMAIN, LEGACY_DOMAINS
 
 
 class GatewayStore:
@@ -16,11 +16,31 @@ class GatewayStore:
         if not serial or any(char not in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_-" for char in serial):
             raise ValueError("gateway serial contains an unsafe path character")
         self._serial = serial
-        self._gateways_root = (
-            Path(config_dir) / ".storage" / DOMAIN / "gateways"
-        )
+        self._storage_root = Path(config_dir) / ".storage"
+        self._gateways_root = self._storage_root / DOMAIN / "gateways"
         self.root = self._gateways_root / serial
+        if not self.root.is_dir():
+            self._adopt_legacy_root(serial)
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+
+    def _adopt_legacy_root(self, serial: str) -> None:
+        """Copy this gateway's material from the pre-rename domain, once.
+
+        The integration used to be stored as ``oneconnect_bridge``. Renaming
+        the domain would otherwise force every existing gateway to pair again,
+        so the old directory is copied over and left untouched as a backup.
+        """
+
+        for legacy in LEGACY_DOMAINS:
+            source = (self._storage_root / legacy / "gateways" / serial).resolve()
+            expected_parent = (self._storage_root / legacy / "gateways").resolve()
+            if source.parent != expected_parent or source.name != serial:
+                continue
+            if not source.is_dir():
+                continue
+            self.root.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            shutil.copytree(source, self.root, dirs_exist_ok=False)
+            return
 
     def path(self, relative: str) -> Path:
         path = (self.root / relative).resolve()
@@ -71,21 +91,6 @@ class GatewayStore:
         temporary.replace(path)
         os.chmod(path, 0o600)
         return path
-
-    def ensure_mapping_file(self, source: Path) -> Path:
-        """Copy the bundled sample mapping once into this gateway scope."""
-
-        target = self.path("mapping.yaml")
-        if target.is_file():
-            return target
-        if not source.is_file():
-            raise FileNotFoundError(source)
-        temporary = target.with_suffix(target.suffix + ".tmp")
-        temporary.write_bytes(source.read_bytes())
-        os.chmod(temporary, 0o600)
-        temporary.replace(target)
-        os.chmod(target, 0o600)
-        return target
 
     def remove_gateway(self) -> None:
         """Remove exactly this gateway's storage scope."""

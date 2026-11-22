@@ -1,0 +1,8 @@
+{
+  "name": "HA HW Bridge",
+  "homeassistant": "2025.1.0",
+  "render_readme": true,
+  "hide_default_branch": false,
+  "zip_release": false,
+  "filename": "ha_hw_bridge.zip"
+}

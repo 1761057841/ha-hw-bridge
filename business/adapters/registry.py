@@ -26,6 +26,8 @@ from .status import ADAPTER as STATUS
 from .switch import ADAPTER as SWITCH
 from .temperature import ADAPTER as TEMPERATURE
 
+from .api import ServiceAdapter
+
 
 _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
     adapter.service_id: adapter

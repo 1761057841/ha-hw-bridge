@@ -1,6 +1,6 @@
 {
-  "domain": "oneconnect_bridge",
-  "name": "OneConnect Bridge",
+  "domain": "ha_hw_bridge",
+  "name": "HA HW Bridge",
   "version": "2026.10.24",
   "config_flow": true,
   "documentation": "https://github.com/xiasi0/ha-oneconnect-bridge",

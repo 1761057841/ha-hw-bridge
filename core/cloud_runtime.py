@@ -1186,7 +1186,7 @@ class CloudM2MClient:
 
                     Thread(
                         target=run_post_ack,
-                        name="oneconnect-bridge-child-post-ack",
+                        name="ha-hw-bridge-child-post-ack",
                         daemon=True,
                     ).start()
                 return True

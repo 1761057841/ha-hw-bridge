@@ -71,6 +71,7 @@ class GatewayConfig:
     manufacturer: str = DEFAULT_MANUFACTURER
     model: str = DEFAULT_MODEL
     protocol_type: int = DEFAULT_PROTOCOL_TYPE
+    enable_trace: bool = False
 
 
 class PairingBusyError(RuntimeError):
@@ -101,7 +102,7 @@ class PairingBroker:
             self._stop.clear()
             self._thread = threading.Thread(
                 target=self._run,
-                name=f"oneconnect-bridge-pairing-{runtime.serial}",
+                name=f"ha-hw-bridge-pairing-{runtime.serial}",
                 daemon=True,
             )
             self._thread.start()
@@ -243,8 +244,25 @@ class GatewayRuntime:
         self._reload_queue.put(request)
         event = request["event"]
         assert isinstance(event, threading.Event)
-        if not event.wait(timeout):
-            raise TimeoutError(f"gateway {self.serial} child reload timed out")
+        # The cloud worker may exit while we wait (terminal errcode, heartbeat
+        # retry limit). Abandon the request instead of timing out blindly.
+        deadline = time.monotonic() + timeout
+        while not event.wait(0.5):
+            with self._lock:
+                client = self._active_client
+                thread = self._cloud_thread
+            if (
+                client is None
+                or thread is None
+                or not thread.is_alive()
+                or time.monotonic() >= deadline
+            ):
+                break
+        if not event.is_set():
+            raise TimeoutError(
+                f"gateway {self.serial} child reload did not complete; the cloud "
+                "session is not available"
+            )
         error = request.get("error")
         if isinstance(error, Exception):
             raise error
@@ -272,7 +290,9 @@ class GatewayRuntime:
                         client,
                         access_token,
                         integration_version=self._integration_version,
-                        hardware_version=self._integration_version,
+                        # Child devices report the same virtual hardware version
+                        # as this gateway, not the integration release.
+                        hardware_version=VIRTUAL_HARDWARE_VERSION,
                     ):
                         raise RuntimeError("one or more child operations failed")
                 else:
@@ -532,6 +552,11 @@ class GatewayRuntime:
                     mac=self.config.mac,
                     interface_ip=self.config.interface_ip,
                     material_path=self.store.path("cloud/material.json"),
+                    trace_path=(
+                        self.store.path("cloud/trace.json")
+                        if self.config.enable_trace
+                        else None
+                    ),
                     on_online=lambda: self._set_status("online"),
                     on_cloud_ready=handle_cloud_ready,
                     on_worker_tick=self._process_reload_requests,
@@ -612,7 +637,7 @@ class GatewayRuntime:
 
         self._cloud_thread = threading.Thread(
             target=worker,
-            name=f"oneconnect-bridge-cloud-{self.serial}",
+            name=f"ha-hw-bridge-cloud-{self.serial}",
             daemon=True,
         )
         self._cloud_thread.start()
@@ -630,7 +655,7 @@ class GatewayRuntime:
             client,
             access_token,
             integration_version=integration_version,
-            hardware_version=self._integration_version,
+            hardware_version=VIRTUAL_HARDWARE_VERSION,
         )
 
     def _create_pairing_ticket(self) -> None:
@@ -711,7 +736,7 @@ class GatewayManager:
             return self._runtimes[config.serial]
         if len(self._runtimes) >= MAX_GATEWAY_INSTANCES:
             raise GatewayLimitError(
-                f"OneConnect Bridge supports at most {MAX_GATEWAY_INSTANCES} "
+                f"HA HW Bridge supports at most {MAX_GATEWAY_INSTANCES} "
                 "gateway instances"
             )
         runtime = GatewayRuntime(config, self.broker)

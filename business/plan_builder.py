@@ -4,16 +4,21 @@ Each child device added through the UI is stored as one subentry whose
 ``data`` holds everything: the product identity fields at the top level
 and ``services``/``bindings`` lists beside them. This module is the
 single place that translates that UI shape into the frozen ``models``
-objects consumed by ``ChildManager``, reusing the same validation rules
-as ``mapping_config`` so YAML and UI devices share identical semantics.
+objects consumed by ``ChildManager``.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from ..const import MAX_CHILD_DEVICES_PER_GATEWAY
 from .adapters import get_service_adapter
 from .models import ChildPlan, GatewayPlan, ProductSpec, ServiceBinding, ServiceRef
+
+# Child keys become storage directory names and cloud child identities.
+_KEY_CHARS = frozenset(
+    "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_-"
+)
 
 
 class PlanBuilderError(ValueError):
@@ -50,6 +55,22 @@ def room_from_subentry(data: dict[str, Any]) -> str | None:
     if not isinstance(value, str):
         raise PlanBuilderError("room must be text when present")
     return value
+
+
+def key_from_subentry(data: dict[str, Any], fallback: str | None = None) -> str:
+    """Read the stable child key, falling back to the subentry id.
+
+    New subentries always persist ``key``. The fallback keeps entries created
+    before the key existed usable even if the version-3 migration could not
+    write them back; it is stable because a subentry id never changes.
+    """
+
+    key = data.get("key") or fallback
+    if not isinstance(key, str) or not key:
+        raise PlanBuilderError("child key is missing; re-add this child device")
+    if any(char not in _KEY_CHARS for char in key):
+        raise PlanBuilderError(f"child key {key!r} contains an unsafe character")
+    return key
 
 
 def services_from_subentry(data: dict[str, Any]) -> tuple[ServiceRef, ...]:
@@ -125,6 +146,7 @@ def child_from_subentry(subentry) -> ChildPlan:
     """Build one ``ChildPlan`` from a config subentry."""
 
     data = subentry.data
+    key = key_from_subentry(data, fallback=getattr(subentry, "subentry_id", None))
     product = product_from_subentry(data)
     room = room_from_subentry(data)
     services = services_from_subentry(data)
@@ -133,7 +155,7 @@ def child_from_subentry(subentry) -> ChildPlan:
     unknown = sorted({binding.service_id for binding in bindings} - selected)
     if unknown:
         raise PlanBuilderError(
-            f"child {subentry.title} has bindings for unselected services: "
+            f"child {key} has bindings for unselected services: "
             f"{', '.join(unknown)}"
         )
     for binding in bindings:
@@ -143,10 +165,10 @@ def child_from_subentry(subentry) -> ChildPlan:
             )
         except ValueError as error:
             raise PlanBuilderError(
-                f"child {subentry.title} service {binding.service_id} is invalid: {error}"
+                f"child {key} service {binding.service_id} is invalid: {error}"
             ) from error
     return ChildPlan(
-        key=str(data.get("key") or subentry.subentry_id),
+        key=key,
         product=product,
         room=room,
         services=services,
@@ -160,6 +182,16 @@ def plan_from_subentries(
     """Build the merged runtime plan from every child subentry."""
 
     children: list[ChildPlan] = []
+    seen_keys: set[str] = set()
     for subentry in subentries:
-        children.append(child_from_subentry(subentry))
+        child = child_from_subentry(subentry)
+        if child.key in seen_keys:
+            raise PlanBuilderError(f"child key {child.key} is used by two devices")
+        seen_keys.add(child.key)
+        children.append(child)
+    if len(children) > MAX_CHILD_DEVICES_PER_GATEWAY:
+        raise PlanBuilderError(
+            f"{len(children)} child devices are configured; "
+            f"the maximum is {MAX_CHILD_DEVICES_PER_GATEWAY}"
+        )
     return GatewayPlan(gateway_serial=gateway_serial, children=tuple(children))
