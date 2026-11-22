@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import secrets
 import socket
@@ -22,9 +23,9 @@ from .const import (
     DOMAIN,
     MAX_CHILD_DEVICES_PER_GATEWAY,
 )
-from .storage import GatewayStore
 
 SUBENTRY_TYPE_CHILD = "child"
+_LOGGER = logging.getLogger(__name__)
 
 
 def _interface_options() -> dict[str, str]:
@@ -175,7 +176,7 @@ class HAHWBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
 
         schema_dict: dict[Any, Any] = {
-            vol.Required(CONF_INTERFACE_IP, default=current_ip): vol.In(options)
+            vol.Required(CONF_INTERFACE_IP): vol.In(options)
         }
         if legacy_serials:
             schema_dict[
@@ -376,6 +377,9 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 try:
                     _adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
+                    _LOGGER.debug(
+                        "Rejected entity binding sid=%s: %s", service_id, error
+                    )
                     errors[_entity_field(service_id)] = "invalid_entities"
                     continue
                 bindings.append({"sid": service_id, "entities": entity_list})
@@ -483,6 +487,9 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 try:
                     _adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
+                    _LOGGER.debug(
+                        "Rejected entity binding sid=%s: %s", service_id, error
+                    )
                     errors[_entity_field(service_id)] = "invalid_entities"
                     continue
                 new_bindings.append({"sid": service_id, "entities": entity_list})

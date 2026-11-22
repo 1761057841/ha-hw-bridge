@@ -463,6 +463,45 @@ class LegacyAdoptionTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HA_STUBBED, "real Home Assistant or voluptuous unavailable")
+class ConfigFlowSmokeTest(unittest.TestCase):
+    """Call the first form of both flows to catch undefined names.
+
+    A NameError inside async_step_user surfaces to the user as
+    "500 Internal Server Error" with no usable message, so a cheap smoke test
+    over the initial schema is worth having.
+    """
+
+    def _flow(self, cls, **attrs):
+        flow = cls.__new__(cls)
+        flow.hass = attrs.pop("hass")
+        flow.context = {}
+        for key, value in attrs.items():
+            setattr(flow, key, value)
+        return flow
+
+    def test_config_flow_first_form_renders(self):
+        from ha_hw_bridge.config_flow import HAHWBridgeConfigFlow  # noqa: PLC0415
+
+        config_dir = tempfile.mkdtemp()
+        hass = FakeHass(make_entry(config_dir), config_dir)
+        flow = self._flow(HAHWBridgeConfigFlow, hass=hass)
+        result = asyncio.run(flow.async_step_user())
+        self.assertIn("interface_ip", result["data_schema"].schema)
+
+    def test_options_flow_first_form_renders(self):
+        from ha_hw_bridge.config_flow import HAHWBridgeOptionsFlow  # noqa: PLC0415
+
+        config_dir = tempfile.mkdtemp()
+        entry = make_entry(config_dir)
+        hass = FakeHass(entry, config_dir)
+        flow = self._flow(HAHWBridgeOptionsFlow, hass=hass, handler="e1")
+        result = asyncio.run(flow.async_step_init())
+        schema = result["data_schema"].schema
+        self.assertIn("interface_ip", schema)
+        self.assertIn("enable_trace", schema)
+
+
+@unittest.skipUnless(HA_STUBBED, "real Home Assistant or voluptuous unavailable")
 class MigrationTest(unittest.TestCase):
     def test_version_two_subentries_get_a_stable_key(self):
         entry = make_entry(tempfile.mkdtemp())
