@@ -25,55 +25,6 @@ PRESET_PRODUCTS: dict[str, dict[str, Any]] = {
             {"st": "switch", "sid": "switch"},
         ],
     },
-    "presence_sensor_2cqh": {
-        # 吸顶式毫米波人体存在传感器。只声明一个 status 服务，因此 App 卡片
-        # 只需要「有人/无人」两态，不会因为缺少 distance/luminance 而残缺。
-        "prod_id": "2CQH",
-        "sub_prod_id": "",
-        "device_type": "03E",
-        "manufacturer": "",
-        "model": "BL5006R",
-        "friendly_name": "人体存在传感器（2CQH）",
-        "protocol_type": 1,
-        "setup_type": 0,
-        "known_fields_only": True,
-        "services": [
-            {"st": "status", "sid": "status",
-             "contract": {"states": {"off": 0, "on": 1}}},
-        ],
-    },
-    "presence_sensor_220n": {
-        # 人体存在传感器 MR5009H：同上，单 status 服务。
-        "prod_id": "220N",
-        "sub_prod_id": "",
-        "device_type": "03E",
-        "manufacturer": "3e0",
-        "model": "MR5009H",
-        "friendly_name": "人体存在传感器（220N）",
-        "protocol_type": 1,
-        "setup_type": 0,
-        "known_fields_only": True,
-        "services": [
-            {"st": "status", "sid": "status",
-             "contract": {"states": {"off": 0, "on": 1}}},
-        ],
-    },
-    "motion_sensor_2w5": {
-        # 侧装红外人体移动 + 光照：人体移动用 pir 状态，光照用 luminance。
-        "prod_id": "27W5",
-        "sub_prod_id": "",
-        "device_type": "03E",
-        "manufacturer": "001",
-        "model": "BL5016R",
-        "friendly_name": "人体移动光照传感器（27W5）",
-        "protocol_type": 1,
-        "setup_type": 0,
-        "known_fields_only": True,
-        "services": [
-            {"st": "status", "sid": "status",
-             "contract": {"states": {"off": 0, "on": 1}}},
-        ],
-    },
     "smart_plug_a0do": {
         "prod_id": "A0DO",
         "sub_prod_id": "",
