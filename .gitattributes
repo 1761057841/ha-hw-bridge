@@ -1,7 +1,0 @@
-# Keep the repository byte-for-byte stable so a diff never mixes line-ending noise
-# with a real change. Every source file here is authored as LF.
-*.py text eol=lf
-*.md text eol=lf
-*.json text eol=lf
-*.yaml text eol=lf
-*.png -text
