@@ -11,5 +11,6 @@ from .child_lock_switch import BinarySwitchServiceAdapter
 
 ADAPTER = BinarySwitchServiceAdapter(
     "lightSwitch",
+    "switch",
     aliases=("on", "lightSwitch", "switch", "action"),
 )

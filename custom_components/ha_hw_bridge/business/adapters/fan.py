@@ -45,6 +45,8 @@ _HA_TO_DIRECTION = {name: direction for direction, name in _DIRECTION_TO_HA.item
 
 class FanServiceAdapter:
     service_id = "fan"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "fan"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("climate",)
     entity_counts = None

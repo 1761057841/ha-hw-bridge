@@ -68,6 +68,8 @@ def _warn_unhandled(adapter: str, value: object, *, mapped: object = None) -> No
 
 class MotorServiceAdapter:
     service_id = "motor"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "motor"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("cover",)
     entity_counts = None

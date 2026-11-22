@@ -7,6 +7,8 @@ from ..models import ServiceRef
 
 class PirServiceAdapter:
     service_id = "pir"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "status"
     entity_domains = ("binary_sensor",)
     entity_counts = None
 

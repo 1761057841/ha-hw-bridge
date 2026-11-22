@@ -70,6 +70,8 @@ def _warn_unhandled(name: str, value: object) -> None:
 
 class OpenerServiceAdapter:
     service_id = "opener"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "opener"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("cover",)
     entity_counts = None

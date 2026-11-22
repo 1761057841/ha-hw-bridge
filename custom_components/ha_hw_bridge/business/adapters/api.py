@@ -9,6 +9,9 @@ from ..models import ServiceRef
 
 class ServiceAdapter(Protocol):
     service_id: str
+    # Huawei serviceType for this sid; the two fields differ for vendor-defined
+    # services such as childLockSwitch (st = switch) or lightMode (st = mode).
+    service_type: str
     # Domains accepted by validate_entities, used by the UI entity selector.
     # Single-entity adapters list their accepted domains; multi-entity
     # adapters (air_detector, gas_sensor) list the domain every entity

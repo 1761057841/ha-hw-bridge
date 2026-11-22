@@ -33,8 +33,14 @@ class BinarySwitchServiceAdapter:
     entity_domains = ("switch", "binary_sensor", "input_boolean")
     entity_counts = None
 
-    def __init__(self, service_id: str, aliases: tuple[str, ...] = _ALIASES) -> None:
+    def __init__(
+        self,
+        service_id: str,
+        service_type: str = "switch",
+        aliases: tuple[str, ...] = _ALIASES,
+    ) -> None:
         self.service_id = service_id
+        self.service_type = service_type
         self._aliases = aliases
 
     def validate_service(self, service: ServiceRef) -> None:

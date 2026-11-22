@@ -9,6 +9,8 @@ from ..models import ServiceRef
 
 class TargetDistanceServiceAdapter:
     service_id = "targetDistance"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "targetDistance"
     entity_domains = ("sensor",)
     entity_counts = None
 

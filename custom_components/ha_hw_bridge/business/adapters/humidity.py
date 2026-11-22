@@ -9,6 +9,8 @@ from ..models import ServiceRef
 
 class HumidityServiceAdapter:
     service_id = "humidity"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "humidity"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("sensor", "climate")
     entity_counts = None

@@ -33,8 +33,9 @@ class LightModeServiceAdapter:
     entity_domains = ("light", "input_select", "select", "sensor")
     entity_counts = None
 
-    def __init__(self, service_id: str) -> None:
+    def __init__(self, service_id: str, service_type: str = "mode") -> None:
         self.service_id = service_id
+        self.service_type = service_type
 
     def validate_service(self, service: ServiceRef) -> None:
         if service.service_type != "mode":

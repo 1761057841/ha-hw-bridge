@@ -45,6 +45,8 @@ _COMMAND_TO_ACTION = {1: "return_to_base", 2: "start", 3: "pause"}
 
 class CleanerRobotServiceAdapter:
     service_id = "cleanerRobot"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "cleanerRobot"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("vacuum",)
     entity_counts = None

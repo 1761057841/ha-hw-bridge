@@ -60,6 +60,8 @@ def _warn_unhandled(adapter: str, value: object, *, mapped: object = None) -> No
 
 class OpenLevelServiceAdapter:
     service_id = "openLevel"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "openLevel"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("cover",)
     entity_counts = None

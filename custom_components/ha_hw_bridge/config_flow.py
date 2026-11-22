@@ -68,6 +68,19 @@ def _adapter_for(service_id: str):
     return get_service_adapter(service_id)
 
 
+def _service_type_for(service_id: str) -> str:
+    """Return the Huawei serviceType for one sid.
+
+    The two are not the same field: Profiles pair a vendor-defined ``sid``
+    (``childLockSwitch``, ``lightMode``, ``leftAction`` …) with a documented
+    ``st`` (``switch``, ``mode``, ``action`` …). Writing the sid into ``st``
+    makes the service look like a different Profile service, and validation
+    then rejects it.
+    """
+
+    return _adapter_for(service_id).service_type
+
+
 def _service_multi_select(template: dict[str, Any]):
     services = template.get("services") or []
     choices = {
@@ -313,7 +326,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             else:
                 self.context["selected_services"] = valid
                 template["services"] = [
-                    {"st": _adapter_for(sid).service_id, "sid": sid}
+                    {"st": _service_type_for(sid), "sid": sid}
                     for sid in valid
                 ]
                 return await self.async_step_child_entities()

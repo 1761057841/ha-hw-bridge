@@ -35,6 +35,8 @@ _DEFAULT_HA_TO_MODE = {"auto": 1, "cool": 2, "heat": 3, "fan_only": 4, "dry": 5}
 
 class ModeServiceAdapter:
     service_id = "mode"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "mode"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("climate",)
     entity_counts = None

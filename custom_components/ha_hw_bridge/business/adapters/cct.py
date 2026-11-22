@@ -7,6 +7,8 @@ from ..models import ServiceRef
 
 class CctServiceAdapter:
     service_id = "cct"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "cct"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("light",)
     entity_counts = None

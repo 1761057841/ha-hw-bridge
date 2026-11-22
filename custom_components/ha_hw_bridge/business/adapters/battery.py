@@ -9,6 +9,8 @@ from ..models import ServiceRef
 
 class BatteryServiceAdapter:
     service_id = "battery"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "battery"
     entity_domains = ("sensor", "binary_sensor")
     entity_counts = None
 

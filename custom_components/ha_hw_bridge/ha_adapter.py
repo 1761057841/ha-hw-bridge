@@ -6,7 +6,7 @@ import logging
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
-from .business.adapters import get_service_adapter
+from .business.adapters import get_adapter_for_service
 from .business.models import ChildPlan
 
 
@@ -110,7 +110,11 @@ class HAEntityBridge:
         result: dict[str, dict[str, object]] = {}
         services = {service.service_id: service for service in child.services}
         for binding in child.bindings:
-            data = await get_service_adapter(binding.service_id).read_state(
+            adapter = get_adapter_for_service(
+                binding.service_id,
+                services[binding.service_id].service_type,
+            )
+            data = await adapter.read_state(
                 self._hass, services[binding.service_id], binding.entity_ids
             )
             if data:
@@ -130,9 +134,10 @@ class HAEntityBridge:
                 service_id,
             )
             return
-        await get_service_adapter(service_id).apply_command(
+        service = next(item for item in child.services if item.service_id == service_id)
+        await get_adapter_for_service(service_id, service.service_type).apply_command(
             self._hass,
-            next(item for item in child.services if item.service_id == service_id),
+            service,
             binding.entity_ids,
             payload,
         )

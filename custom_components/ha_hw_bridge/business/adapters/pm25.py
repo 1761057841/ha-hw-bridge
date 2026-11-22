@@ -31,6 +31,8 @@ from ..models import ServiceRef
 
 class Pm25ServiceAdapter:
     service_id = "pm25"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "pm25"
     entity_domains = ("sensor",)
     entity_counts = None
 

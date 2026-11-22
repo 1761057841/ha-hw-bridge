@@ -7,6 +7,8 @@ from ..models import ServiceRef
 
 class ColourServiceAdapter:
     service_id = "colour"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "colour"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("light",)
     entity_counts = None

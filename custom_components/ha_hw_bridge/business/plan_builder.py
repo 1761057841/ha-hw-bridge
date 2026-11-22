@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..const import MAX_CHILD_DEVICES_PER_GATEWAY
-from .adapters import get_service_adapter
+from .adapters import get_adapter_for_service, get_service_adapter
 from .models import ChildPlan, GatewayPlan, ProductSpec, ServiceBinding, ServiceRef
 
 # Child keys become storage directory names and cloud child identities.
@@ -92,10 +92,21 @@ def services_from_subentry(data: dict[str, Any]) -> tuple[ServiceRef, ...]:
         contract_raw = raw.get("contract") or {}
         if not isinstance(contract_raw, dict):
             raise PlanBuilderError(f"service {service_id} contract must be a mapping")
+        # Repair the sid-in-``st`` mistake made by earlier UI flows: st and sid
+        # are different Profile fields, and a wrong st invalidates the service.
+        # A Profile's ``st`` is authoritative: many vendor sids share one
+        # serviceType, so resolve the adapter by (sid, serviceType).
+        try:
+            adapter = get_adapter_for_service(service_id, service_type)
+        except ValueError as error:
+            raise PlanBuilderError(str(error)) from error
+        canonical_type = getattr(adapter, "service_type", None)
+        if isinstance(canonical_type, str) and canonical_type != service_type:
+            service_type = canonical_type
         contract = tuple(contract_raw.items())
         service = ServiceRef(service_type, service_id, contract)
         try:
-            get_service_adapter(service_id).validate_service(service)
+            adapter.validate_service(service)
         except ValueError as error:
             raise PlanBuilderError(
                 f"service {service_id} is invalid: {error}"

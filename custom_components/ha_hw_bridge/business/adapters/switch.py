@@ -11,6 +11,8 @@ _LOGGER = logging.getLogger(__name__)
 
 class SwitchServiceAdapter:
     service_id = "switch"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "switch"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("climate", "light", "switch", "fan")
     entity_counts = None

@@ -128,6 +128,8 @@ _ROLES = {
 
 class ActionServiceAdapter:
     service_id = "action"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "action"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("cover", "valve", "vacuum", "media_player", "climate")
     entity_counts = None

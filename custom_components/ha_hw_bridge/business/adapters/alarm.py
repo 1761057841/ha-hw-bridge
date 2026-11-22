@@ -15,6 +15,8 @@ from ..models import ServiceRef
 
 class AlarmServiceAdapter:
     service_id = "alarm"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "alarm"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("binary_sensor",)
     entity_counts = None

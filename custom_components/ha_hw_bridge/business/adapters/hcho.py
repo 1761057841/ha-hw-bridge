@@ -38,6 +38,8 @@ from ..models import ServiceRef
 
 class HchoServiceAdapter:
     service_id = "hcho"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "hcho"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("sensor", "input_number", "number")
     entity_counts = None

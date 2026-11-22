@@ -254,6 +254,121 @@ class Pm25AdapterTest(unittest.TestCase):
         )
 
 
+class VendorSidFallbackTest(unittest.TestCase):
+    """A Profile's serviceType must resolve even when the sid is vendor-defined."""
+
+    def test_unregistered_sid_falls_back_to_its_service_type(self):
+        from ha_hw_bridge.business.adapters import get_adapter_for_service
+
+        for sid in ("deviceSwitch", "ledSwitch", "indicator", "selfCheck"):
+            with self.subTest(sid=sid):
+                adapter = get_adapter_for_service(sid, "switch")
+                self.assertEqual(adapter.service_type, "switch")
+
+    def test_unknown_service_type_is_still_rejected(self):
+        from ha_hw_bridge.business.adapters import get_adapter_for_service
+
+        with self.assertRaises(ValueError):
+            get_adapter_for_service("mysterySid", "mysteryType")
+
+    def test_plan_builder_repairs_the_sid_in_st_mistake(self):
+        from ha_hw_bridge.business.plan_builder import services_from_subentry
+
+        services = services_from_subentry(
+            {"services": [{"st": "childLockSwitch", "sid": "childLockSwitch"}]}
+        )
+        self.assertEqual(services[0].service_type, "switch")
+
+
+class FilterElementAdapterTest(unittest.TestCase):
+    def test_reads_left_percentage(self):
+        adapter = get_service_adapter("filterElement1")
+        hass = FakeHass({"sensor.f": FakeState("42")})
+        self.assertEqual(
+            run(adapter.read_state(
+                hass, svc("filterElement1", st="filterElement"), ("sensor.f",))),
+            {"leftPer": 42},
+        )
+
+    def test_out_of_range_is_clamped_not_dropped(self):
+        adapter = get_service_adapter("filterElement1")
+        hass = FakeHass({"sensor.f": FakeState("130")})
+        self.assertEqual(
+            run(adapter.read_state(
+                hass, svc("filterElement1", st="filterElement"), ("sensor.f",))),
+            {"leftPer": 100},
+        )
+
+    def test_wrong_service_type_is_rejected(self):
+        adapter = get_service_adapter("filterElement2")
+        with self.assertRaises(ValueError):
+            adapter.validate_service(svc("filterElement2", st="switch"))
+
+
+class LightServiceAdapterTest(unittest.TestCase):
+    def test_reports_and_commands_a_light_entity(self):
+        adapter = get_service_adapter("light")
+        hass = FakeHass({"light.hood": FakeState("on")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("light", st="light"), ("light.hood",))),
+            {"on": True},
+        )
+        run(adapter.apply_command(
+            hass, svc("light", st="light"), ("light.hood",), {"on": False}))
+        self.assertEqual(hass.services.calls[0][1], "turn_off")
+
+
+class VolumeAdapterTest(unittest.TestCase):
+    def test_media_player_percentage_is_scaled(self):
+        adapter = get_service_adapter("volume")
+        hass = FakeHass({"media_player.s": FakeState("idle", volume_level=0.35)})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("volume", st="volume"), ("media_player.s",))),
+            {"volume": 35},
+        )
+
+    def test_command_sets_media_player_level(self):
+        adapter = get_service_adapter("volume")
+        hass = FakeHass({"media_player.s": FakeState("idle", volume_level=0.0)})
+        run(adapter.apply_command(
+            hass, svc("volume", st="volume"), ("media_player.s",), {"volume": 60}))
+        self.assertEqual(hass.services.calls[0][2]["volume_level"], 0.6)
+
+
+class GearAdapterTest(unittest.TestCase):
+    def test_enum_maps_both_directions(self):
+        adapter = get_service_adapter("gear")
+        hass = FakeHass({"input_select.g": FakeState("high", options=["low", "high"])})
+        values = {"low": 1, "high": 3}
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("gear", st="gear", values=values),
+                                   ("input_select.g",))),
+            {"gear": 3},
+        )
+        run(adapter.apply_command(hass, svc("gear", st="gear", values=values),
+                                  ("input_select.g",), {"gear": 1}))
+        self.assertEqual(hass.services.calls[0][2]["option"], "low")
+
+
+class ModeSettingAdapterTest(unittest.TestCase):
+    def test_only_listed_fields_are_reported(self):
+        adapter = get_service_adapter("detectionPara")
+        hass = FakeHass({"number.d": FakeState("250")})
+        fields = [{"name": "triggerDistance", "kind": "int", "min": 100, "max": 600}]
+        self.assertEqual(
+            run(adapter.read_state(
+                hass, svc("detectionPara", st="modeSetting", fields=fields),
+                ("number.d",))),
+            {"triggerDistance": 250},
+        )
+
+    def test_unlisted_characteristics_are_never_guessed(self):
+        adapter = get_service_adapter("detectionPara")
+        hass = FakeHass({"number.d": FakeState("250")})
+        with self.assertRaises(ValueError):
+            adapter.validate_service(svc("detectionPara", st="modeSetting"))
+
+
 class RegistryTest(unittest.TestCase):
     def test_every_registered_adapter_declares_its_contract(self):
         from ha_hw_bridge.business.adapters import registry

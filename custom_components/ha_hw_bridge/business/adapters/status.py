@@ -53,6 +53,8 @@ _WARNED: set[tuple[str, str | None, object]] = set()
 
 class StatusServiceAdapter:
     service_id = "status"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "status"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("cover", "binary_sensor", "sensor")
     entity_counts = None

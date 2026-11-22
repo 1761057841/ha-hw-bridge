@@ -22,6 +22,8 @@ from ..models import ServiceRef
 
 class GasSensorServiceAdapter:
     service_id = "gasSensor"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "gas"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("sensor",)
     entity_counts = (1, 2)

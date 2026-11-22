@@ -9,6 +9,8 @@ from ..models import ServiceRef
 
 class LuminanceServiceAdapter:
     service_id = "luminance"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "luminance"
     entity_domains = ("sensor",)
     entity_counts = None
 

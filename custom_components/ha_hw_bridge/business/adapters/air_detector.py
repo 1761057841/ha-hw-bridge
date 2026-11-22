@@ -9,6 +9,8 @@ from ..models import ServiceRef
 
 class AirDetectorServiceAdapter:
     service_id = "airDetector"
+    # Huawei serviceType from the Profile; it is not always the sid.
+    service_type = "airDetector"
     # Declared for the UI entity selector; validate_entities enforces the same rule.
     entity_domains = ("sensor",)
     entity_counts = (2, 2)
