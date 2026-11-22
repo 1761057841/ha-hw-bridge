@@ -12,6 +12,11 @@ from .pir import ADAPTER as PIR
 from .target_distance import ADAPTER as TARGET_DISTANCE
 from .brightness import ADAPTER as BRIGHTNESS
 from .cct import ADAPTER as CCT
+from .child_lock_switch import ADAPTER as CHILD_LOCK_SWITCH
+from .light_switch import ADAPTER as LIGHT_SWITCH
+from .light_mode import ADAPTER as LIGHT_MODE
+from .colour_mode import ADAPTER as COLOUR_MODE
+from .pm25 import ADAPTER as PM25
 from .cleaner_robot import ADAPTER as CLEANER_ROBOT
 from .colour import ADAPTER as COLOUR
 from .gas_sensor import ADAPTER as GAS_SENSOR
@@ -37,6 +42,11 @@ _SERVICE_ADAPTERS: dict[str, ServiceAdapter] = {
         CCT,
         COLOUR,
         TEMPERATURE,
+        PM25,
+        CHILD_LOCK_SWITCH,
+        LIGHT_SWITCH,
+        LIGHT_MODE,
+        COLOUR_MODE,
         HUMIDITY,
         AIR_DETECTOR,
         MOTOR,

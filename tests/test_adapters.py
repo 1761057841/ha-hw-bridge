@@ -163,6 +163,97 @@ class OpenerAdapterTest(unittest.TestCase):
         self.assertEqual(hass.services.calls, [])
 
 
+class BinarySwitchAdapterTest(unittest.TestCase):
+    def test_reports_boolean_not_int(self):
+        adapter = get_service_adapter("childLockSwitch")
+        hass = FakeHass({"switch.lock": FakeState("on")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("childLockSwitch", st="switch"),
+                                   ("switch.lock",))),
+            {"on": True},
+        )
+
+    def test_swap_inverts_both_directions(self):
+        adapter = get_service_adapter("childLockSwitch")
+        hass = FakeHass({"binary_sensor.lock": FakeState("off")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("childLockSwitch", st="switch", swap=True),
+                                   ("binary_sensor.lock",))),
+            {"on": True},
+        )
+        run(adapter.apply_command(
+            hass, svc("childLockSwitch", st="switch", swap=True),
+            ("binary_sensor.lock",), {"on": True}))
+        self.assertEqual(hass.services.calls[0][1], "turn_off")
+
+    def test_numeric_string_on_is_accepted(self):
+        adapter = get_service_adapter("lightSwitch")
+        hass = FakeHass({"switch.light": FakeState("off")})
+        run(adapter.apply_command(
+            hass, svc("lightSwitch", st="switch"), ("switch.light",), {"on": "1"}))
+        self.assertEqual(hass.services.calls[0][1], "turn_on")
+
+
+class LightModeAdapterTest(unittest.TestCase):
+    def test_unmapped_state_is_not_forwarded(self):
+        adapter = get_service_adapter("lightMode")
+        hass = FakeHass({"input_select.scene": FakeState("movie")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("lightMode", st="mode",
+                                             values={"warm": 1}), ("input_select.scene",))),
+            {},
+        )
+
+    def test_fallback_is_used_when_configured(self):
+        adapter = get_service_adapter("lightMode")
+        hass = FakeHass({"input_select.scene": FakeState("movie")})
+        self.assertEqual(
+            run(adapter.read_state(
+                hass, svc("lightMode", st="mode", values={"warm": 1}, fallback=0),
+                ("input_select.scene",))),
+            {"mode": 0},
+        )
+
+    def test_command_selects_the_matching_option(self):
+        adapter = get_service_adapter("colourMode")
+        hass = FakeHass({"input_select.m": FakeState("warm", options=["warm", "cold"])})
+        run(adapter.apply_command(
+            hass, svc("colourMode", st="mode", values={"warm": 1, "cold": 3}),
+            ("input_select.m",), {"mode": 3}))
+        self.assertEqual(hass.services.calls[0][1:], ("select_option", {"entity_id": "input_select.m", "option": "cold"}))
+
+    def test_duplicate_enum_values_are_rejected(self):
+        adapter = get_service_adapter("lightMode")
+        with self.assertRaises(ValueError):
+            adapter.validate_service(svc("lightMode", st="mode", values={"a": 1, "b": 1}))
+
+
+class Pm25AdapterTest(unittest.TestCase):
+    def test_reads_current_without_level(self):
+        adapter = get_service_adapter("pm25")
+        hass = FakeHass({"sensor.pm": FakeState("37")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("pm25"), ("sensor.pm",))), {"current": 37}
+        )
+
+    def test_level_map_derives_the_enum(self):
+        adapter = get_service_adapter("pm25")
+        hass = FakeHass({"sensor.pm": FakeState("90")})
+        result = run(adapter.read_state(
+            hass,
+            svc("pm25", level_map=[{"max": 35, "value": 1}, {"max": 75, "value": 2},
+                                   {"max": 115, "value": 3}]),
+            ("sensor.pm",)))
+        self.assertEqual(result, {"current": 90, "level": 3})
+
+    def test_values_are_clamped_to_the_profile_range(self):
+        adapter = get_service_adapter("pm25")
+        hass = FakeHass({"sensor.pm": FakeState("5000")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("pm25"), ("sensor.pm",))), {"current": 1000}
+        )
+
+
 class RegistryTest(unittest.TestCase):
     def test_every_registered_adapter_declares_its_contract(self):
         from ha_hw_bridge.business.adapters import registry

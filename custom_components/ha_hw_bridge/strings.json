@@ -155,7 +155,12 @@
             "entity_switch2": "开关 2 (switch2)",
             "entity_switch3": "开关 3 (switch3)",
             "entity_target_distance": "目标距离",
-            "entity_temperature": "温度 (temperature)"
+            "entity_temperature": "温度 (temperature)",
+            "entity_child_lock_switch": "Child lock",
+            "entity_light_switch": "Appliance light switch",
+            "entity_light_mode": "Light mode",
+            "entity_colour_mode": "Colour mode",
+            "entity_pm25": "PM2.5"
           }
         },
         "child_details": {
@@ -198,7 +203,12 @@
             "entity_switch2": "开关 2 (switch2)",
             "entity_switch3": "开关 3 (switch3)",
             "entity_target_distance": "targetDistance (targetDistance)",
-            "entity_temperature": "温度 (temperature)"
+            "entity_temperature": "温度 (temperature)",
+            "entity_child_lock_switch": "Child lock",
+            "entity_light_switch": "Appliance light switch",
+            "entity_light_mode": "Light mode",
+            "entity_colour_mode": "Colour mode",
+            "entity_pm25": "PM2.5"
           }
         }
       },

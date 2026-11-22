@@ -20,10 +20,13 @@ business/adapters/*.py  ⇄  ha_adapter.py       物模型 ⇄ HA 实体
 
 - 局域网配对：App 里选「添加网关」，手动输入 8 位 PIN，无需公网回调。
 - 一条常驻云端会话同时承载多个子设备（上限 64 个/网关，最多 3 个网关）。
-- 23 个华为服务适配器：`switch` / `brightness` / `cct` / `colour` / `temperature` /
+- 32 个华为服务适配器：`switch` / `brightness` / `cct` / `colour` / `temperature` /
   `humidity` / `airDetector` / `motor` / `openLevel` / `opener` / `hcho` / `alarm` /
   `alarmBell` / `battery` / `luminance` / `pir` / `targetDistance` / `gasSensor` /
-  `mode` / `fan` / `cleanerRobot` / `status` / `action`。
+  `mode` / `fan` / `cleanerRobot` / `status` / `action` / `pm25` /
+  `childLockSwitch` / `lightSwitch` / `lightMode` / `colourMode`。
+- 华为官方设备目录里有 **3816 台** 至少能投影一部分功能，**649 台**可完全覆盖，
+  完整清单见 [`docs/device-catalog.md`](docs/device-catalog.md)。
 - 12 个预置产品模型（智控灯泡/床头灯/水壶/电饭煲/空调/窗帘…），也支持按 `prodId` 自定义。
 
 ## 安装
