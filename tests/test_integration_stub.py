@@ -16,7 +16,7 @@ import types
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "ha_hw_bridge"
 
 
 def _install_stub() -> bool:

@@ -28,13 +28,25 @@ business/adapters/*.py  ⇄  ha_adapter.py       物模型 ⇄ HA 实体
 
 ## 安装
 
-1. 把整个仓库目录放到 `config/custom_components/ha_hw_bridge/`
+**方式一（推荐）：HACS**
+
+1. HACS → 集成 → 右上角 ⋮ → 自定义存储库。
+2. URL 填 `https://github.com/1761057841/ha-hw-bridge`，类别选「集成」。
+3. 在 HACS 里搜索 **HA HW Bridge** 并下载。
+4. 重启 Home Assistant。
+
+**方式二：手动**
+
+1. 把仓库里的 `custom_components/ha_hw_bridge/` 整个目录拷到 `config/custom_components/ha_hw_bridge/`
    （**目录名必须与 `manifest.json` 的 `domain` 一致**，否则 HA 找不到集成）。
 2. 重启 Home Assistant。
 3. 设置 → 设备与服务 → 添加集成 → **HA HW Bridge**。
 4. 选择用于配对的 IPv4 网卡（必须与手机在同一局域网）。
 5. 打开华为智慧生活 → 添加网关 → 输入通知里给出的 8 位 PIN。
 6. 在集成页面的设备上点「添加子设备」，选产品模型 → 选服务 → 绑定 HA 实体。
+
+> 从旧版 `migrate` 上来的网关：添加集成时会出现「复用已配对的网关序列号」选项，
+> 选中旧序列号即可免配对接管，详见下一节。
 
 ## 从旧版本（oneconnect_bridge）升级
 
@@ -82,11 +94,12 @@ business/adapters/*.py  ⇄  ha_adapter.py       物模型 ⇄ HA 实体
 适配器与计划编译不依赖 HA 运行时，可以直接跑：
 
 ```bash
-python -m unittest discover -s tests -t .
+python -m unittest discover -s tests -t tests
 ```
 
 `tests/test_integration_stub.py` 用一套轻量 HA 桩验证 `async_setup_entry`、
-子设备增删更新、旧域名接管这些跨模块路径。
+子设备增删更新、旧域名接管这些跨模块路径。桩只在没装 Home Assistant 时生效，
+真机上这些用例会自动跳过。
 
 ## 许可与来源
 

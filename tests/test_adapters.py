@@ -7,7 +7,7 @@ import types
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1] / "custom_components" / "ha_hw_bridge"
 # The repository root is itself the integration directory (HACS layout), so
 # register it as a package without executing __init__.py, which needs HA.
 if "ha_hw_bridge" not in sys.modules:
