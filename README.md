@@ -25,14 +25,47 @@ business/adapters/*.py  ⇄  ha_adapter.py       物模型 ⇄ HA 实体
   `alarmBell` / `battery` / `luminance` / `pir` / `targetDistance` / `gasSensor` /
   `mode` / `fan` / `cleanerRobot` / `status` / `action` / `pm25` /
   `childLockSwitch` / `lightSwitch` / `lightMode` / `colourMode` / `filterElement1-12` /
-  `light` / `volume` / `gear` / `modeSetting`。
+  `light` / `volume` / `gear` / `modeSetting` / `visitPoint1-12`。
 - **厂商自定义 sid 自动回退**：Profile 里 `deviceSwitch` / `ledSwitch` /
-  `leftOpener` 这类自定义 sid 会按它声明的 `serviceType` 找到对应适配器，
-  不再因为 sid 没登记而拒绝整台设备。
-- 华为官方设备目录里有 **4203 台** 至少能投影一部分功能，**1026 台**可完全覆盖，
+  `leftOpener` / `alarmEvent` 这类自定义 sid 会按它声明的 `serviceType` 找到对应适配器，
+  不再因为 sid 没登记而拒绝整台设备。sid → serviceType 对照表由
+  `scripts/gen_service_id_map.py` 从 5926 个官方 Profile 生成（912 个 sid），
+  不靠猜。
+- 华为官方设备目录里有 **4415 台** 至少能投影一部分功能，**1101 台**可完全覆盖，
   完整清单见 [`docs/device-catalog.md`](docs/device-catalog.md)。
 - 12 个预置产品模型（智控灯泡/床头灯/水壶/电饭煲/空调/窗帘…），
   也支持按 `prodId` 自定义。
+- **摄像头**：开关机、拍照、巡航、本地存储、告警检测（人形/移动/声音/婴儿哭声/
+  动物/车辆/越界/区域/陌生人/车牌…按字段分别上报）、预置位按钮。
+  画面本身不经过本集成 —— 见下方「摄像头说明」。
+
+## 摄像头说明
+
+摄像头**可以添加**，但不能通过本集成看到画面。原因是协议层的硬限制，不是没做完：
+
+华为物模型（Profile）里，摄像头只暴露**控制与告警**特性 —— 开关机、拍照、巡航、
+预置位、各类告警标志位。**没有任何一个字段携带视频流地址**。
+
+这一点是查证过的，不是推测：72 个摄像头 Profile 的全部 characteristic 里，
+`url` 字段只出现在 `logReport` 服务中，语义是「日志上传路径」；
+搜遍 rtsp / hls / webrtc / playUrl / streamUrl / onvif 全部无命中。
+
+华为 App 能看画面，是因为它加载 **摄像头插件（uiType=PLUGIN，61/72 个摄像头）**，
+视频流走的是另一套通道，不经过局域网子设备的物模型。
+
+所以本集成对摄像头提供的是：
+
+| 能力 | 绑定实体 | 说明 |
+|---|---|---|
+| 摄像开关 / 拍照 / 巡航 / 本地存储 / 静音 | `switch` / `light` / `fan` | 通断类 |
+| 告警检测（人形、移动、声音、婴儿哭声、动物、车辆、越界、区域、陌生人、车牌…） | `binary_sensor` | 每个检测项单独绑一个，用契约 `field` 指定 |
+| 预置位 1-12 | `button` | 按一次 → 云台转到该预置位 |
+
+`alarmEvent` 一个服务下带多个检测标志位，所以同一个 sid 可以绑多个
+`binary_sensor`，靠契约里的 `field` 区分。默认是通用的 `alarm`。
+
+要看画面，继续用华为智慧生活 App，或摄像头厂商自己的 App。想在 HA 里看画面，
+需要的是厂商的 RTSP/ONVIF 地址，那是另一条路，和本集成无关。
 
 ## 安装
 

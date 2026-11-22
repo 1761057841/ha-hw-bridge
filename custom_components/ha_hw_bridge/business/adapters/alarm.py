@@ -12,6 +12,30 @@ from __future__ import annotations
 
 from ..models import ServiceRef
 
+# A camera's alarmEvent exposes many detector flags. ``alarm`` is the generic one
+# and the only flag on gas detectors, so it stays the default; a camera binds one
+# binary_sensor per detector and names it in the contract instead.
+_ALARM_FIELDS = (
+    "alarm",
+    "humanBodyAlarm",
+    "videoAlarm",
+    "audioAlarm",
+    "babyCryAlarm",
+    "animalAlarm",
+    "carAlarm",
+    "rangeAlarm",
+    "auxiliaryFireAlarm",
+    "invadeAlarm",
+    "shelterAlarm",
+    "humanStayAlarm",
+    "enterZoneAlarm",
+    "leaveZoneAlarm",
+    "acrossLineAlarm",
+    "humanGatherAlarm",
+    "strangerAlarm",
+    "licensePlateAlarm",
+)
+
 
 class AlarmServiceAdapter:
     service_id = "alarm"
@@ -24,8 +48,20 @@ class AlarmServiceAdapter:
     def validate_service(self, service: ServiceRef) -> None:
         if service.service_type != "alarm":
             raise ValueError("alarm requires st: alarm")
-        if service.contract:
-            raise ValueError("alarm does not accept contract overrides")
+        unknown = set(dict(service.contract)) - {"field"}
+        if unknown:
+            raise ValueError(
+                f"alarm has unsupported contract keys: {', '.join(sorted(unknown))}"
+            )
+        field = service.contract_value("field")
+        if field is not None:
+            if not isinstance(field, str) or not field:
+                raise ValueError("alarm contract field must be non-empty text")
+            if field not in _ALARM_FIELDS:
+                raise ValueError(
+                    "alarm contract field must be one of: "
+                    + ", ".join(sorted(_ALARM_FIELDS))
+                )
 
     def validate_entities(self, entity_ids: tuple[str, ...]) -> None:
         if len(entity_ids) != 1 or not entity_ids[0].startswith("binary_sensor."):
@@ -39,11 +75,19 @@ class AlarmServiceAdapter:
         state = hass.states.get(entity_ids[0])
         if state is None:
             return {}
+        field = self._field(service)
         if state.state == "on":
-            return {"alarm": 1}
+            return {field: 1}
         if state.state == "off":
-            return {"alarm": 0}
+            return {field: 0}
         return {}
+
+    @staticmethod
+    def _field(service: ServiceRef) -> str:
+        explicit = service.contract_value("field")
+        if isinstance(explicit, str) and explicit:
+            return explicit
+        return _ALARM_FIELDS[0]
 
     async def apply_command(
         self,

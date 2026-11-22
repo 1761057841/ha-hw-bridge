@@ -369,6 +369,100 @@ class ModeSettingAdapterTest(unittest.TestCase):
             adapter.validate_service(svc("detectionPara", st="modeSetting"))
 
 
+class VisitPointAdapterTest(unittest.TestCase):
+    def test_pressing_the_button_moves_the_camera(self):
+        adapter = get_service_adapter("visitPoint1")
+        hass = FakeHass({"button.p1": FakeState("unknown")})
+        run(adapter.apply_command(
+            hass, svc("visitPoint1", st="visitPoint"), ("button.p1",), {"move": 1}))
+        self.assertEqual(hass.services.calls[0][1], "press")
+
+    def test_move_zero_sends_nothing(self):
+        adapter = get_service_adapter("visitPoint3")
+        hass = FakeHass({"button.p3": FakeState("unknown")})
+        run(adapter.apply_command(
+            hass, svc("visitPoint3", st="visitPoint"), ("button.p3",), {"move": 0}))
+        self.assertEqual(hass.services.calls, [])
+
+    def test_no_state_is_invented_for_a_preset(self):
+        adapter = get_service_adapter("visitPoint2")
+        hass = FakeHass({"button.p2": FakeState("unknown")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("visitPoint2", st="visitPoint"), ("button.p2",))),
+            {},
+        )
+
+    def test_requires_a_button_entity(self):
+        adapter = get_service_adapter("visitPoint1")
+        with self.assertRaises(ValueError):
+            adapter.validate_entities(("switch.p1",))
+
+
+class CameraAlarmFieldTest(unittest.TestCase):
+    def test_a_named_camera_detector_is_reported_under_its_own_field(self):
+        # alarmEvent carries one flag per detector; the contract picks which one
+        # this binding watches, so two sensors can share one service.
+        adapter = get_service_adapter("alarm")  # alarmEvent falls back to alarm
+        hass = FakeHass({"binary_sensor.hb": FakeState("on")})
+        service = svc("alarmEvent", st="alarm", field="humanBodyAlarm")
+        self.assertEqual(
+            run(adapter.read_state(hass, service, ("binary_sensor.hb",))),
+            {"humanBodyAlarm": 1},
+        )
+
+    def test_the_generic_alarm_field_stays_the_default(self):
+        adapter = get_service_adapter("alarm")
+        hass = FakeHass({"binary_sensor.a": FakeState("off")})
+        self.assertEqual(
+            run(adapter.read_state(hass, svc("alarm", st="alarm"), ("binary_sensor.a",))),
+            {"alarm": 0},
+        )
+
+    def test_an_unknown_field_name_is_rejected(self):
+        adapter = get_service_adapter("alarm")
+        with self.assertRaises(ValueError):
+            adapter.validate_service(
+                svc("alarmEvent", st="alarm", field="notADetector")
+            )
+
+
+class ServiceIdMapTest(unittest.TestCase):
+    """The flow only receives a sid, so every sid must resolve by catalogue."""
+
+    def test_camera_sids_resolve_through_the_generated_map(self):
+        from ha_hw_bridge.business.adapters import get_adapter_for_service
+        from ha_hw_bridge.service_id_map import SERVICE_ID_TO_TYPE
+
+        for sid in ("alarmEvent", "videoSwitch", "shootSwitch", "cruiseSwith"):
+            with self.subTest(sid=sid):
+                adapter = get_adapter_for_service(sid, SERVICE_ID_TO_TYPE[sid])
+                self.assertIn(adapter.service_type, {"alarm", "switch"})
+
+    def test_every_mapped_sid_points_at_a_registered_service_type(self):
+        from ha_hw_bridge.service_id_map import SERVICE_ID_TO_TYPE
+
+        from ha_hw_bridge.business.adapters import get_service_adapter
+
+        for sid, service_type in SERVICE_ID_TO_TYPE.items():
+            with self.subTest(sid=sid):
+                # The map must never name a type the registry cannot build.
+                adapter = get_service_adapter(service_type)
+                self.assertEqual(adapter.service_type, service_type)
+
+    def test_the_map_covers_the_presets(self):
+        from ha_hw_bridge.business.product_templates import PRESET_PRODUCTS
+        from ha_hw_bridge.service_id_map import SERVICE_ID_TO_TYPE
+
+        for key, template in PRESET_PRODUCTS.items():
+            with self.subTest(preset=key):
+                for service in template["services"]:
+                    self.assertEqual(
+                        SERVICE_ID_TO_TYPE.get(service["sid"]),
+                        service["st"],
+                        f"{key}: {service['sid']} disagrees with the catalogue",
+                    )
+
+
 class RegistryTest(unittest.TestCase):
     def test_every_registered_adapter_declares_its_contract(self):
         from ha_hw_bridge.business.adapters import registry

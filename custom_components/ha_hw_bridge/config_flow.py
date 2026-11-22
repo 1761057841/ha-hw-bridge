@@ -62,14 +62,32 @@ def _preset_labels() -> dict[str, str]:
     return labels
 
 
-def _adapter_for(service_id: str):
-    from .business.adapters import get_service_adapter
+def _known_service_type(service_id: str) -> str | None:
+    """Return the catalogue serviceType for one sid, if it is known."""
 
-    return get_service_adapter(service_id)
+    from .service_id_map import SERVICE_ID_TO_TYPE
+
+    return SERVICE_ID_TO_TYPE.get(service_id)
 
 
-def _service_type_for(service_id: str) -> str:
-    """Return the Huawei serviceType for one sid.
+def _adapter_for(service_id: str, service_type: str | None = None):
+    """Return the adapter for one sid, falling back to its serviceType.
+
+    A Profile pairs a vendor-defined ``sid`` with a documented ``st``. Products
+    reuse one serviceType under many sids (``deviceSwitch`` / ``ledSwitch`` /
+    ``alarmEvent`` / ``strangerFaceAlarm`` are all ``switch`` or ``alarm``), so
+    resolving by sid alone rejects every service whose sid is not registered.
+    """
+
+    from .business.adapters import get_adapter_for_service
+
+    return get_adapter_for_service(
+        service_id, service_type or _known_service_type(service_id)
+    )
+
+
+def _service_type_for(service_id: str, service_type: str | None = None) -> str:
+    """Return the Huawei serviceType to store for one sid.
 
     The two are not the same field: Profiles pair a vendor-defined ``sid``
     (``childLockSwitch``, ``lightMode``, ``leftAction`` …) with a documented
@@ -78,7 +96,7 @@ def _service_type_for(service_id: str) -> str:
     then rejects it.
     """
 
-    return _adapter_for(service_id).service_type
+    return _adapter_for(service_id, service_type).service_type
 
 
 def _service_multi_select(template: dict[str, Any]):
@@ -103,8 +121,8 @@ def _entity_field(service_id: str) -> str:
     return f"entity_{normalized.lower()}"
 
 
-def _entity_selector_for(service_id: str):
-    adapter = _adapter_for(service_id)
+def _entity_selector_for(service_id: str, service_type: str | None = None):
+    adapter = _adapter_for(service_id, service_type)
     counts = getattr(adapter, "entity_counts", None)
     multiple = bool(counts) and counts[1] > 1
     # EntitySelectorConfig is a TypedDict in HA core; construct a plain
@@ -312,23 +330,25 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             service_ids = [line.strip() for line in raw.splitlines() if line.strip()]
             valid: list[str] = []
             invalid: list[str] = []
+            resolved: dict[str, dict[str, str]] = {}
             for service_id in service_ids:
                 try:
-                    _adapter_for(service_id)
+                    adapter = _adapter_for(service_id)
                 except ValueError:
                     invalid.append(service_id)
                 else:
                     valid.append(service_id)
+                    resolved[service_id] = {
+                        "st": adapter.service_type,
+                        "sid": service_id,
+                    }
             if invalid:
                 errors["service_ids"] = "unknown_service"
             elif not valid:
                 errors["service_ids"] = "no_services_selected"
             else:
                 self.context["selected_services"] = valid
-                template["services"] = [
-                    {"st": _service_type_for(sid), "sid": sid}
-                    for sid in valid
-                ]
+                template["services"] = [resolved[sid] for sid in valid]
                 return await self.async_step_child_entities()
         return self.async_show_form(
             step_id="child_custom_services",
@@ -376,6 +396,15 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
         if not selected or template is None:
             return await self.async_step_child_product()
 
+        st_by_sid = {
+            item["sid"]: item.get("st")
+            for item in (template.get("services") or [])
+            if isinstance(item, dict) and item.get("sid")
+        }
+
+        def adapter_for(service_id: str):
+            return _adapter_for(service_id, st_by_sid.get(service_id))
+
         errors: dict[str, str] = {}
         if user_input is not None:
             bindings: list[dict[str, Any]] = []
@@ -388,7 +417,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                 # list only when multiple=True; normalize both shapes.
                 entity_list = [entities] if isinstance(entities, str) else list(entities)
                 try:
-                    _adapter_for(service_id).validate_entities(tuple(entity_list))
+                    adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
                     _LOGGER.debug(
                         "Rejected entity binding sid=%s: %s", service_id, error
@@ -404,7 +433,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             for service_id in selected:
                 schema_dict[
                     vol.Required(_entity_field(service_id))
-                ] = _entity_selector_for(service_id)
+                ] = _entity_selector_for(service_id, st_by_sid.get(service_id))
         except ValueError:
             return await self.async_step_child_product()
         return self.async_show_form(
@@ -487,6 +516,14 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
             for item in data.get("services", [])
             if isinstance(item, dict) and item.get("sid")
         ]
+        st_by_sid = {
+            item["sid"]: item.get("st")
+            for item in data.get("services", [])
+            if isinstance(item, dict) and item.get("sid")
+        }
+
+        def adapter_for(service_id: str):
+            return _adapter_for(service_id, st_by_sid.get(service_id))
 
         errors: dict[str, str] = {}
         if user_input is not None:
@@ -498,7 +535,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                     continue
                 entity_list = [entities] if isinstance(entities, str) else list(entities)
                 try:
-                    _adapter_for(service_id).validate_entities(tuple(entity_list))
+                    adapter_for(service_id).validate_entities(tuple(entity_list))
                 except ValueError as error:
                     _LOGGER.debug(
                         "Rejected entity binding sid=%s: %s", service_id, error
@@ -533,7 +570,7 @@ class ChildDeviceSubentryFlow(config_entries.ConfigSubentryFlow):
                         _entity_field(service_id),
                         default=bindings.get(service_id, []),
                     )
-                ] = _entity_selector_for(service_id)
+                ] = _entity_selector_for(service_id, st_by_sid.get(service_id))
         except ValueError:
             errors["base"] = "unknown_service"
         return self.async_show_form(

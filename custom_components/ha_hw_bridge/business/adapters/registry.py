@@ -22,6 +22,7 @@ from .gear import ADAPTER as GEAR
 from .filter_element import FilterElementServiceAdapter
 from .light import ADAPTER as LIGHT
 from .volume import ADAPTER as VOLUME
+from .visit_point import VisitPointServiceAdapter
 from .cleaner_robot import ADAPTER as CLEANER_ROBOT
 from .colour import ADAPTER as COLOUR
 from .gas_sensor import ADAPTER as GAS_SENSOR
@@ -82,6 +83,8 @@ _SERVICE_ADAPTERS["leftAction"] = ACTION
 _SERVICE_ADAPTERS["leftOpener"] = OPENER
 # filterElement1..N all share one shape; register each sid explicitly so a
 # Profile that names filterElement5 resolves without the serviceType fallback.
+for _index in range(1, 13):
+    _SERVICE_ADAPTERS[f"visitPoint{_index}"] = VisitPointServiceAdapter()
 for _index in range(1, 13):
     _SERVICE_ADAPTERS[f"filterElement{_index}"] = FilterElementServiceAdapter(
         f"filterElement{_index}"
